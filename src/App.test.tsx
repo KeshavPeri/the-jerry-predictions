@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { SELECTED_PROFILE_KEY, type CompetitionHome } from './competition'
 import { CompetitionLoadError } from './supabase'
-import { emptyPredictions, type PredictionPayload } from './predictions'
+import { emptyPredictions, initialTableOrder, PredictionDataError, type PredictionPayload } from './predictions'
 
 const competition: CompetitionHome = {
   id: 'competition-id',
@@ -18,7 +18,10 @@ const competition: CompetitionHome = {
 }
 
 describe('competition home', () => {
-  beforeEach(() => window.localStorage.clear())
+  beforeEach(() => {
+    window.localStorage.clear()
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: true })
+  })
 
   it('shows purposeful loading while shared data is pending', () => {
     render(<App loadCompetition={() => new Promise(() => undefined)} />)
@@ -188,6 +191,66 @@ describe('competition home', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Premier League questions' }))
     expect(screen.getByLabelText('Arsenal vs Chelsea at the Emirates — score prediction: home score')).toHaveValue('2')
     expect(screen.getByLabelText('Arsenal vs Chelsea at the Emirates — score prediction: away score')).toHaveValue('')
-    expect(screen.getByText('0 of 19 cup and question predictions answered')).toBeInTheDocument()
+    expect(screen.getByText('0 of 39 predictions answered')).toBeInTheDocument()
+  })
+
+  it('keeps the alphabetical table unconfirmed until explicitly confirmed, then saves all twenty positions', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    expect(screen.getByText('Not confirmed — 0 table predictions included')).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')).toHaveLength(20)
+    expect(screen.getByText('AFC Bournemouth')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Move AFC Bournemouth up' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm table' }))
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
+    expect(save.mock.calls[0][1].table).toEqual({ order: initialTableOrder, confirmed: true })
+    expect(screen.getByText('20 of 39 predictions answered')).toBeInTheDocument()
+  })
+
+  it('reorders with controls, announces the new position, and saves an unconfirmed draft', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('button', { name: 'Move Arsenal up' }))
+    expect(await screen.findByText('Arsenal moved to position 1. Table needs confirmation.')).toBeInTheDocument()
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
+    expect(save.mock.calls[0][1].table).toEqual({ order: ['arsenal', 'afc-bournemouth', ...initialTableOrder.slice(2)], confirmed: false })
+  })
+
+  it('reorders with a pointer drag handle', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Drag AFC Bournemouth' }))
+    fireEvent.pointerUp(screen.getAllByRole('listitem')[1])
+    expect(await screen.findByText('AFC Bournemouth moved to position 2. Table needs confirmation.')).toBeInTheDocument()
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
+    expect(save.mock.calls[0][1].table?.order.slice(0, 2)).toEqual(['arsenal', 'afc-bournemouth'])
+  })
+
+  it('lets a participant skip a saved table and reload a confirmed table in the same order', async () => {
+    const saved = { ...emptyPredictions(), table: { order: [...initialTableOrder].reverse(), confirmed: true } }
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(saved), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    expect(screen.getByText('Confirmed — 20 predictions included')).toBeInTheDocument()
+    expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('Tottenham Hotspur')
+    fireEvent.click(screen.getByRole('button', { name: 'Skip table' }))
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
+    expect(save.mock.calls[0][1].table).toBeUndefined()
+  })
+
+  it('stops without writing when a saved table is malformed', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.reject(new PredictionDataError('malformed table')), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    expect(await screen.findByText('We could not safely load this table')).toBeInTheDocument()
+    expect(screen.getAllByText('Saved table needs attention')).toHaveLength(2)
+    expect(save).not.toHaveBeenCalled()
   })
 })

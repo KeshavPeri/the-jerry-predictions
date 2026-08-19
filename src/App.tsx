@@ -15,12 +15,17 @@ import {
 } from './supabase'
 import {
   answeredCount,
+  clubNameById,
   cupQuestions,
   emptyPredictions,
+  initialTableOrder,
   leagueQuestions,
+  moveClub,
   normalizeManualAnswer,
   parseWholeNumber,
+  PredictionDataError,
   suggestionCatalog,
+  type ClubId,
   type PredictionPayload,
   type ScoreAnswer,
 } from './predictions'
@@ -152,7 +157,7 @@ function CompetitionHomeView({
 function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { profile: Profile; onSwitch: () => void; predictionStore: PredictionStore; onStatusSaved: (hasPredictions: boolean) => void }) {
   const [activeTab, setActiveTab] = useState<(typeof workspaceTabs)[number]>(workspaceTabs[0])
   const [predictions, setPredictions] = useState<PredictionPayload>(emptyPredictions)
-  const [saveState, setSaveState] = useState<'loading' | 'saved' | 'saving' | 'failed' | 'offline'>('loading')
+  const [saveState, setSaveState] = useState<'loading' | 'saved' | 'saving' | 'failed' | 'offline' | 'invalid'>('loading')
   const [changed, setChanged] = useState(false)
   const pending = useRef<PredictionPayload | null>(null)
 
@@ -162,7 +167,7 @@ function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { prof
       if (!active) return
       setPredictions(loaded)
       setSaveState('saved')
-    }).catch(() => active && setSaveState('offline'))
+    }).catch((error: unknown) => active && setSaveState(error instanceof PredictionDataError ? 'invalid' : 'offline'))
     return () => { active = false }
   }, [profile.id, predictionStore])
 
@@ -180,7 +185,11 @@ function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { prof
     return () => window.clearTimeout(timeout)
   }, [predictions, changed, write])
 
-  const update = (next: PredictionPayload) => { setPredictions(next); setChanged(true) }
+  const update = (next: PredictionPayload) => {
+    if (saveState === 'invalid') return
+    setPredictions(next)
+    setChanged(true)
+  }
   const saveText = (group: 'cups' | 'questions', id: string, value: string) => {
     const normalized = normalizeManualAnswer(value)
     const fields = { ...predictions[group] }
@@ -205,7 +214,7 @@ function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { prof
   }
   const retry = () => pending.current && write(pending.current)
   const count = answeredCount(predictions)
-  const statusText = saveState === 'loading' ? 'Loading saved draft' : saveState === 'saving' ? 'Saving' : saveState === 'failed' ? 'Not saved' : saveState === 'offline' ? 'Offline — changes are not shared' : 'Saved'
+  const statusText = saveState === 'loading' ? 'Loading saved draft' : saveState === 'saving' ? 'Saving' : saveState === 'failed' ? 'Not saved' : saveState === 'offline' ? 'Offline — changes are not shared' : saveState === 'invalid' ? 'Saved table needs attention' : 'Saved'
   return (
     <section className="workspace-card" aria-labelledby="workspace-title">
       <header className="workspace-header">
@@ -227,7 +236,7 @@ function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { prof
       <p className="honour-note">Profiles are shared on trust—there is no sign-in or verified identity.</p>
 
       <div className={`save-status save-${saveState}`} role="status" aria-live="polite">
-        <span>{statusText}</span><span>{count} of 19 cup and question predictions answered</span>
+        <span>{statusText}</span><span>{count} of 39 predictions answered</span>
         {saveState === 'failed' && <button className="secondary-button" type="button" onClick={retry}>Retry</button>}
       </div>
 
@@ -253,13 +262,81 @@ function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { prof
         aria-labelledby={`tab-${workspaceTabs.indexOf(activeTab)}`}
         tabIndex={0}
       >
-        {activeTab === 'Cup winners' && <AnswerFields predictions={predictions} onText={saveText} />}
-        {activeTab === 'Premier League questions' && <QuestionFields predictions={predictions} onText={saveText} onNumber={saveNumber} onScore={saveScore} />}
-        {activeTab === 'Premier League table' && <><p className="state-kicker">Next up</p><h2>Premier League table</h2><p>Table ranking arrives in the next focused feature. Cup and question answers are ready to save now.</p></>}
+        {saveState === 'invalid' ? <MalformedTableState /> : <>
+          {activeTab === 'Cup winners' && <AnswerFields predictions={predictions} onText={saveText} />}
+          {activeTab === 'Premier League questions' && <QuestionFields predictions={predictions} onText={saveText} onNumber={saveNumber} onScore={saveScore} />}
+          {activeTab === 'Premier League table' && <TablePredictionFields predictions={predictions} onUpdate={update} />}
+        </>}
         {activeTab === 'Review & lock' && <><p className="state-kicker">Draft review</p><h2>{count} predictions ready</h2><p>Review and locking arrive after the table prediction feature. Your saved cup and question answers remain editable.</p></>}
       </div>
     </section>
   )
+}
+
+function MalformedTableState() {
+  return <section className="table-error" role="alert">
+    <p className="state-kicker">Saved table needs attention</p>
+    <h2>We could not safely load this table</h2>
+    <p>The saved table has a missing, duplicate, or unrecognised club. Nothing has been changed or saved over it. Ask Keshav to correct the shared entry before continuing.</p>
+  </section>
+}
+
+function positionZone(position: number): string {
+  if (position === 1) return 'Champion'
+  if (position <= 5) return 'Champions League'
+  if (position <= 7) return 'Europa League'
+  if (position === 8) return 'Conference League'
+  if (position >= 18) return 'Relegation'
+  return 'League position'
+}
+
+function TablePredictionFields({ predictions, onUpdate }: { predictions: PredictionPayload; onUpdate: (next: PredictionPayload) => void }) {
+  const order = predictions.table?.order ?? initialTableOrder
+  const confirmed = predictions.table?.confirmed ?? false
+  const [announcement, setAnnouncement] = useState('')
+  const draggedClub = useRef<ClubId | null>(null)
+
+  const changeOrder = (from: number, to: number) => {
+    const nextOrder = moveClub(order, from, to)
+    if (nextOrder === order) return
+    const club = nextOrder[to]
+    onUpdate({ ...predictions, table: { order: nextOrder, confirmed: false } })
+    setAnnouncement(`${clubNameById[club]} moved to position ${to + 1}. Table needs confirmation.`)
+  }
+  const skip = () => {
+    const withoutTable = { ...predictions }
+    delete withoutTable.table
+    onUpdate(withoutTable)
+    setAnnouncement('Premier League table skipped. It will not count as a prediction.')
+  }
+  const confirm = () => {
+    onUpdate({ ...predictions, table: { order: [...order], confirmed: true } })
+    setAnnouncement('Premier League table confirmed. All 20 positions will count as predictions.')
+  }
+
+  return <>
+    <p className="state-kicker">Optional prediction</p>
+    <h2>Premier League table</h2>
+    <p>Rank every club. Drag the handle or use Move up and Move down. The alphabetical starting order only counts after you confirm it.</p>
+    <p className={`table-confirmation ${confirmed ? 'is-confirmed' : ''}`}>{confirmed ? 'Confirmed — 20 predictions included' : 'Not confirmed — 0 table predictions included'}</p>
+    <p className="sr-only" aria-live="polite" aria-atomic="true">{announcement}</p>
+    <ol className="league-table" aria-label="Premier League prediction table">
+      {order.map((club, index) => <li className={`table-row table-zone-${positionZone(index + 1).toLowerCase().replaceAll(' ', '-')}`} key={club} onPointerUp={() => {
+        if (draggedClub.current && draggedClub.current !== club) changeOrder(order.indexOf(draggedClub.current), index)
+        draggedClub.current = null
+      }}>
+        <span className="table-position" aria-label={`Position ${index + 1}`}>{index + 1}</span>
+        <button className="drag-handle" type="button" aria-label={`Drag ${clubNameById[club]}`} onPointerDown={() => { draggedClub.current = club }} onPointerCancel={() => { draggedClub.current = null }}>↕</button>
+        <span className="table-club">{clubNameById[club]}</span>
+        <span className="table-zone-label">{positionZone(index + 1)}</span>
+        <span className="table-controls"><button type="button" aria-label={`Move ${clubNameById[club]} up`} disabled={index === 0} onClick={() => changeOrder(index, index - 1)}>Move up</button><button type="button" aria-label={`Move ${clubNameById[club]} down`} disabled={index === order.length - 1} onClick={() => changeOrder(index, index + 1)}>Move down</button></span>
+      </li>)}
+    </ol>
+    <div className="table-actions">
+      <button className="primary-button" type="button" onClick={confirm}>{confirmed ? 'Table confirmed' : 'Confirm table'}</button>
+      <button className="secondary-button" type="button" onClick={skip}>Skip table</button>
+    </div>
+  </>
 }
 
 function AnswerFields({ predictions, onText }: { predictions: PredictionPayload; onText: (group: 'cups' | 'questions', id: string, value: string) => void }) {
