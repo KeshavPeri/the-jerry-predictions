@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex App Factory"
+  short_description: "Build the next reviewed feature safely"
+  default_prompt: "Use $codex-app-factory to process the next ready feature."

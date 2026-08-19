@@ -1,0 +1,59 @@
+name: Factory feature
+description: A buildable feature for the Codex App Factory
+title: "[Feature] "
+labels:
+  - "factory:ready"
+body:
+  - type: textarea
+    id: outcome
+    attributes:
+      label: User-visible outcome
+      description: Describe what becomes possible for the user.
+      placeholder: A participant can...
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Definition of done
+      description: List observable checks. Each line should be independently verifiable.
+      placeholder: |
+        - Given..., when..., then...
+        - Invalid input shows...
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: In scope
+      description: Name the behavior and surfaces this ticket may change.
+    validations:
+      required: true
+  - type: textarea
+    id: exclusions
+    attributes:
+      label: Out of scope
+      description: Name tempting adjacent work that must not be included.
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Dependencies and decisions
+      description: Link prerequisite issues and relevant product or decision sections. Write None when there are none.
+    validations:
+      required: true
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification notes
+      description: Add useful test data, devices, browsers, or edge cases.
+    validations:
+      required: false
+  - type: checkboxes
+    id: authority
+    attributes:
+      label: Owner-only action check
+      options:
+        - label: This ticket does not require a production action, new account, billing change, new secret, destructive or irreversible data operation, privacy-boundary change, infrastructure commitment, or product decision outside the Product Manager's delegated authority.
+          required: true
