@@ -109,6 +109,15 @@ h1 {
   text-wrap: balance;
 }
 
+.competition-subtitle {
+  max-width: 32ch;
+  margin: 1rem auto 0;
+  color: var(--mist);
+  font-size: clamp(1rem, 2.4vw, 1.125rem);
+  line-height: 1.5;
+  text-wrap: balance;
+}
+
 .pennant-rail {
   display: flex;
   justify-content: center;
