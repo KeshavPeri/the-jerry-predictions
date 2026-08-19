@@ -156,7 +156,89 @@ function CompetitionHomeView({
   )
 }
 
-function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { profile: Profile; onSwitch: () => void; predictionStore: PredictionStore; onStatusSaved: (hasPredictions: boolean, locked?: boolean) => void }) {
+function LockedPredictionsHub({
+  viewer,
+  competition,
+  viewerPredictions,
+  predictionStore,
+  onRefresh,
+}: {
+  viewer: Profile
+  competition: CompetitionHome
+  viewerPredictions: PredictionPayload
+  predictionStore: PredictionStore
+  onRefresh: () => Promise<CompetitionHome>
+}) {
+  const [selectedId, setSelectedId] = useState(viewer.id)
+  const [friendPredictions, setFriendPredictions] = useState<PredictionPayload | null>(null)
+  const [loadState, setLoadState] = useState<'idle' | 'loading' | 'error'>('idle')
+  const [refreshState, setRefreshState] = useState<'idle' | 'refreshing' | 'error'>('idle')
+  const entryRequest = useRef(0)
+  const lockedProfiles = competition.profiles.filter((profile) => profile.status === 'Locked')
+  const selectedProfile = lockedProfiles.find((profile) => profile.id === selectedId) ?? viewer
+
+  const selectEntry = (profile: Profile) => {
+    const requestId = entryRequest.current + 1
+    entryRequest.current = requestId
+    setSelectedId(profile.id)
+    if (profile.id === viewer.id) return
+    setLoadState('loading')
+    void predictionStore.load(profile.id).then((predictions) => {
+      if (entryRequest.current !== requestId) return
+      setFriendPredictions(predictions)
+      setLoadState('idle')
+    }).catch(() => {
+      if (entryRequest.current === requestId) setLoadState('error')
+    })
+  }
+
+  const refresh = () => {
+    setRefreshState('refreshing')
+    void onRefresh().then((refreshedCompetition) => {
+      const selectedIsStillLocked = refreshedCompetition.profiles.some((profile) => profile.id === selectedId && profile.status === 'Locked')
+      if (!selectedIsStillLocked) {
+        entryRequest.current += 1
+        setSelectedId(viewer.id)
+        setFriendPredictions(null)
+        setLoadState('idle')
+      }
+      setRefreshState('idle')
+    }).catch(() => setRefreshState('error'))
+  }
+  const shownPredictions = selectedProfile.id === viewer.id ? viewerPredictions : friendPredictions
+
+  return <section className="locked-hub" aria-labelledby="locked-hub-title">
+    <div className="locked-hub-heading">
+      <div>
+        <p className="state-kicker">You’re locked in</p>
+        <h2 id="locked-hub-title">Browse locked predictions</h2>
+        <p>Your entry is read-only. Friends appear here after they lock their own entries.</p>
+      </div>
+      <button className="secondary-button" type="button" onClick={refresh} disabled={refreshState === 'refreshing'}>
+        {refreshState === 'refreshing' ? 'Refreshing statuses…' : 'Refresh statuses'}
+      </button>
+    </div>
+    {refreshState === 'error' && <p className="hub-error" role="alert">Statuses could not be refreshed. Your current entry is still shown; try again.</p>}
+    <ul className="hub-status-grid" aria-label="Participant lock statuses">
+      {competition.profiles.map((profile) => <li className={`hub-status accent-${profile.accent}`} key={profile.id}>
+        <span className="hub-monogram" aria-hidden="true">{profile.monogram}</span>
+        <span><strong>{profile.name}</strong><small>{profile.status === 'Locked' ? 'Locked — available' : `${profile.status} — waiting`}</small></span>
+      </li>)}
+    </ul>
+    <div className="locked-tabs" role="tablist" aria-label="Locked participant entries">
+      {lockedProfiles.map((profile) => <button key={profile.id} id={`locked-tab-${profile.id}`} role="tab" type="button" aria-selected={selectedProfile.id === profile.id} aria-controls="locked-entry-panel" onClick={() => selectEntry(profile)}>
+        {profile.monogram} <span>{profile.name}</span>
+      </button>)}
+    </div>
+    <div id="locked-entry-panel" className="locked-entry-panel" role="tabpanel" aria-labelledby={`locked-tab-${selectedProfile.id}`} tabIndex={0}>
+      {selectedProfile.id !== viewer.id && loadState === 'loading' && <p role="status">Loading {selectedProfile.name}'s locked entry…</p>}
+      {selectedProfile.id !== viewer.id && loadState === 'error' && <div className="table-error" role="alert"><h3>We could not load this locked entry</h3><p>No prediction details are shown until the shared entry can be read safely.</p><button className="secondary-button" type="button" onClick={() => setSelectedId(viewer.id)}>Return to my entry</button></div>}
+      {(selectedProfile.id === viewer.id || loadState === 'idle') && shownPredictions && <ReadOnlyEntry profile={selectedProfile} predictions={shownPredictions} ownEntry={selectedProfile.id === viewer.id} />}
+    </div>
+  </section>
+}
+
+function Workspace({ profile, competition, onSwitch, predictionStore, onStatusSaved, onRefresh }: { profile: Profile; competition: CompetitionHome; onSwitch: () => void; predictionStore: PredictionStore; onStatusSaved: (hasPredictions: boolean, locked?: boolean) => void; onRefresh: () => Promise<CompetitionHome> }) {
   const [activeTab, setActiveTab] = useState<(typeof workspaceTabs)[number]>(workspaceTabs[0])
   const [predictions, setPredictions] = useState<PredictionPayload>(emptyPredictions)
   const [saveState, setSaveState] = useState<'loading' | 'saved' | 'saving' | 'failed' | 'offline' | 'invalid'>('loading')
@@ -240,6 +322,8 @@ function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { prof
 
       <p className="honour-note">Profiles are shared on trust—there is no sign-in or verified identity.</p>
 
+      {locked && profile.status === 'Locked' ? <LockedPredictionsHub viewer={profile} competition={competition} viewerPredictions={predictions} predictionStore={predictionStore} onRefresh={onRefresh} /> : <>
+
       <div className={`save-status save-${saveState}`} role="status" aria-live="polite">
         <span>{statusText}</span><span>{count} of 39 predictions answered</span>
         {saveState === 'failed' && <button className="secondary-button" type="button" onClick={retry}>Retry</button>}
@@ -267,7 +351,7 @@ function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { prof
         aria-labelledby={`tab-${workspaceTabs.indexOf(activeTab)}`}
         tabIndex={0}
       >
-        {saveState === 'invalid' ? <MalformedTableState /> : locked ? <LockedEntry profile={profile} predictions={predictions} /> : <>
+        {saveState === 'invalid' ? <MalformedTableState /> : <>
           {activeTab === 'Cup winners' && <AnswerFields predictions={predictions} onText={saveText} />}
           {activeTab === 'Premier League questions' && <QuestionFields predictions={predictions} onText={saveText} onNumber={saveNumber} onScore={saveScore} />}
           {activeTab === 'Premier League table' && <TablePredictionFields predictions={predictions} onUpdate={update} />}
@@ -293,6 +377,7 @@ function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { prof
           canRetry={Boolean(predictionStore.lock) && count > 0 && !changed && lockConfirmed && Boolean(lockError)}
         />}
       </div>
+      </>}
     </section>
   )
 }
@@ -318,7 +403,7 @@ function ReviewContent({ predictions, onEdit }: { predictions: PredictionPayload
   const table = predictions.table?.confirmed ? predictions.table.order : null
   const heading = (title: string, tab: (typeof workspaceTabs)[number]) => onEdit ? <div className="review-heading"><h3>{title}</h3><button className="text-button" type="button" onClick={() => onEdit(tab)}>Edit {title}</button></div> : <div className="review-heading"><h3>{title}</h3></div>
   return <>
-    <section className="review-group">{heading('Premier League table', 'Premier League table')}{table ? <ol className="review-table">{table.map((club, index) => <li key={club}><span>{index + 1}</span>{clubNameById[club]}</li>)}</ol> : <p className="no-prediction">No prediction</p>}</section>
+    <section className="review-group">{heading('Premier League table', 'Premier League table')}{table ? <ol className="review-table">{table.map((club, index) => <li key={club}><span>{index + 1}</span>{clubNameById[club]}</li>)}</ol> : <p className="no-prediction">No table prediction</p>}</section>
     <section className="review-group">{heading('Cup winners', 'Cup winners')}<dl className="review-list">{cupQuestions.map((cup) => <div key={cup}><dt>{cup}</dt><dd className={predictions.cups[cup] ? '' : 'no-prediction'}>{answerText(predictions.cups[cup])}</dd></div>)}</dl></section>
     <section className="review-group">{heading('Premier League questions', 'Premier League questions')}<dl className="review-list">{leagueQuestions.map((question) => <div key={question.id}><dt>{question.label}</dt><dd className={answerText(predictions.questions[question.id]) === 'No prediction' ? 'no-prediction' : ''}>{answerText(predictions.questions[question.id])}</dd></div>)}</dl></section>
   </>
@@ -340,8 +425,8 @@ function ScoringReference() {
   return <details className="scoring-reference"><summary>Scoring reference — {SCORING_TOTAL} points available</summary><div><p><strong>Premier League table — {SCORING_ALLOCATION.table}:</strong> each club is worth 5 exact, 3 one away, 1 two away; plus champion 5, top-five inclusion 2 each (10) plus all-five 5, relegation inclusion 3 each (9) plus all-three 6.</p><p><strong>Cups — {SCORING_ALLOCATION.cups}:</strong> Champions League 10; Europa League and FA Cup 8 each; Conference League and Carabao Cup 6 each. Winners only.</p><p><strong>Ten categorical questions — {SCORING_ALLOCATION.categoricalQuestions}:</strong> 7 each. Shared official or Keshav-accepted winners each receive the full 7. A manager departure includes dismissal, resignation, or mutual consent; interim and caretaker managers do not count. No managerial departure is valid.</p><p><strong>Two numeric questions — {SCORING_ALLOCATION.numericQuestions}:</strong> closest answer gets 7, with 3 more for exact. Tied closest answers each receive full points; blanks score zero. Chelsea red cards are the final official Premier League player total: straight reds and second-yellow dismissals count; staff dismissals and non-league matches do not. Arsenal set-piece goals come from corners, direct or indirect free kicks, or throw-ins before open play resumes; penalties are excluded and opponent own goals from that phase count.</p><p><strong>Two match scores — {SCORING_ALLOCATION.matchPredictions}:</strong> 7 each for the exact official score. A replayed or abandoned fixture uses the final Premier League-recognised score. Categories without an official or supplied outcome are void and score zero; totals are not renormalized. Joint overall leaders remain tied.</p></div></details>
 }
 
-function LockedEntry({ profile, predictions }: { profile: Profile; predictions: PredictionPayload }) {
-  return <div className={`locked-entry accent-${profile.accent}`}><div className="locked-pennant" aria-hidden="true">{profile.monogram}</div><p className="state-kicker">You’re locked in</p><h2>{profile.name}'s entry is read-only</h2><p>Your pennant is illuminated. Keshav can reopen this entry in the competition database if a correction is needed; reopening hides it and requires locking again.</p><p>{answeredCount(predictions)} predictions locked. Other locked participant entries become available after refresh; draft entries remain hidden.</p><ReviewContent predictions={predictions} /></div>
+function ReadOnlyEntry({ profile, predictions, ownEntry }: { profile: Profile; predictions: PredictionPayload; ownEntry: boolean }) {
+  return <div className={`locked-entry accent-${profile.accent}`}><div className="locked-pennant" aria-hidden="true">{profile.monogram}</div><p className="state-kicker">{ownEntry ? 'Your locked entry' : 'Locked participant entry'}</p><h3>{profile.name}'s entry is read-only</h3><p>{ownEntry ? 'Your entry is read-only. Keshav can reopen it in the competition database if a correction is needed.' : 'This entry is read-only and available because both of you are locked.'}</p><p>{answeredCount(predictions)} predictions locked.</p><ReviewContent predictions={predictions} /></div>
 }
 
 function positionZone(position: number): string {
@@ -448,6 +533,12 @@ export function App({ loadCompetition = loadCompetitionHome, predictionStore }: 
     setRequestId((current) => current + 1)
   }
 
+  const refreshCompetition = useCallback(async () => {
+    const competition = await loadCompetition()
+    setViewState({ phase: 'ready', competition })
+    return competition
+  }, [loadCompetition])
+
   let content
   if (viewState.phase === 'loading') {
     content = <LoadingState />
@@ -456,7 +547,7 @@ export function App({ loadCompetition = loadCompetitionHome, predictionStore }: 
   } else {
     const selectedProfile = viewState.competition.profiles.find(({ slug }) => slug === selectedSlug)
     content = selectedProfile ? (
-      <Workspace key={selectedProfile.id} profile={selectedProfile} predictionStore={store} onSwitch={() => setSelectedSlug(null)} onStatusSaved={(hasPredictions, locked) => {
+      <Workspace key={selectedProfile.id} profile={selectedProfile} competition={viewState.competition} predictionStore={store} onSwitch={() => setSelectedSlug(null)} onRefresh={refreshCompetition} onStatusSaved={(hasPredictions, locked) => {
         setViewState((current) => current.phase !== 'ready' ? current : {
           ...current,
           competition: {
