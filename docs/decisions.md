@@ -230,3 +230,11 @@ Record material product decisions so a future run can reconstruct not only what 
 - **Confidence:** Medium
 - **Reversibility:** Easy
 - **Authority:** Delegated product authority
+
+### 2026-08-19 — Persist table drafts separately from confirmed table predictions
+
+- **Decision:** Store the optional Premier League table as a complete ordered club-ID payload with a `confirmed` flag. A saved but unconfirmed reordered draft reloads across devices but contributes zero answered predictions; only an explicit confirmation counts all 20 positions. Clearing/skipping omits the table payload.
+- **Because:** Participants must be able to resume reordering without the initial alphabetical list silently becoming a prediction. A single complete payload preserves the scoring-ready all-or-nothing rule.
+- **Consequences:** Invalid saved table data (missing, duplicate, or unknown clubs) must surface a non-destructive malformed-data state and must not be silently repaired or re-saved. Pointer/touch dragging is paired with explicit movement controls and live announcements.
+- **Reversibility:** Moderate.
+- **Authority:** Delegated product authority

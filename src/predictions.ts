@@ -1,6 +1,33 @@
 export const PREDICTION_PAYLOAD_VERSION = 1
 export const MAX_MANUAL_ANSWER_LENGTH = 120
 
+export const premierLeagueClubs = [
+  { id: 'afc-bournemouth', name: 'AFC Bournemouth' },
+  { id: 'arsenal', name: 'Arsenal' },
+  { id: 'aston-villa', name: 'Aston Villa' },
+  { id: 'brentford', name: 'Brentford' },
+  { id: 'brighton-and-hove-albion', name: 'Brighton & Hove Albion' },
+  { id: 'chelsea', name: 'Chelsea' },
+  { id: 'coventry-city', name: 'Coventry City' },
+  { id: 'crystal-palace', name: 'Crystal Palace' },
+  { id: 'everton', name: 'Everton' },
+  { id: 'fulham', name: 'Fulham' },
+  { id: 'hull-city', name: 'Hull City' },
+  { id: 'ipswich-town', name: 'Ipswich Town' },
+  { id: 'leeds-united', name: 'Leeds United' },
+  { id: 'liverpool', name: 'Liverpool' },
+  { id: 'manchester-city', name: 'Manchester City' },
+  { id: 'manchester-united', name: 'Manchester United' },
+  { id: 'newcastle-united', name: 'Newcastle United' },
+  { id: 'nottingham-forest', name: 'Nottingham Forest' },
+  { id: 'sunderland', name: 'Sunderland' },
+  { id: 'tottenham-hotspur', name: 'Tottenham Hotspur' },
+] as const
+
+export type ClubId = (typeof premierLeagueClubs)[number]['id']
+export const initialTableOrder = premierLeagueClubs.map(({ id }) => id)
+export const clubNameById = Object.fromEntries(premierLeagueClubs.map(({ id, name }) => [id, name])) as Record<ClubId, string>
+
 export const cupQuestions = [
   'UEFA Champions League',
   'UEFA Europa League',
@@ -51,10 +78,12 @@ export const suggestionCatalog = [
 ]
 
 export interface ScoreAnswer { home: number | null; away: number | null }
+export interface TablePrediction { order: ClubId[]; confirmed: boolean }
 export interface PredictionPayload {
   version: number
   cups: Record<string, string>
   questions: Record<string, string | number | ScoreAnswer>
+  table?: TablePrediction
 }
 
 export const emptyPredictions = (): PredictionPayload => ({ version: PREDICTION_PAYLOAD_VERSION, cups: {}, questions: {} })
@@ -78,7 +107,28 @@ export function hasAnswer(value: unknown): boolean {
 }
 
 export function answeredCount(payload: PredictionPayload): number {
-  return Object.values(payload.cups).filter(hasAnswer).length + Object.values(payload.questions).filter(hasAnswer).length
+  return Object.values(payload.cups).filter(hasAnswer).length + Object.values(payload.questions).filter(hasAnswer).length + (payload.table?.confirmed ? 20 : 0)
+}
+
+export class PredictionDataError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'PredictionDataError'
+  }
+}
+
+export function isCompleteTableOrder(value: unknown): value is ClubId[] {
+  return Array.isArray(value) && value.length === initialTableOrder.length &&
+    value.every((club): club is ClubId => typeof club === 'string' && club in clubNameById) &&
+    new Set(value).size === initialTableOrder.length
+}
+
+export function moveClub(order: ClubId[], from: number, to: number): ClubId[] {
+  if (from < 0 || to < 0 || from >= order.length || to >= order.length || from === to) return order
+  const next = [...order]
+  const [club] = next.splice(from, 1)
+  next.splice(to, 0, club)
+  return next
 }
 
 export function parsePredictionPayload(value: unknown): PredictionPayload {
@@ -87,6 +137,17 @@ export function parsePredictionPayload(value: unknown): PredictionPayload {
   const cups = source.cups && typeof source.cups === 'object' && !Array.isArray(source.cups) ? source.cups as Record<string, unknown> : {}
   const questions = source.questions && typeof source.questions === 'object' && !Array.isArray(source.questions) ? source.questions as Record<string, unknown> : {}
   const parsed = emptyPredictions()
+  if ('table' in source && source.table !== undefined) {
+    const table = source.table
+    if (!table || typeof table !== 'object' || Array.isArray(table)) {
+      throw new PredictionDataError('The saved Premier League table is malformed.')
+    }
+    const candidate = table as Record<string, unknown>
+    if (!isCompleteTableOrder(candidate.order) || typeof candidate.confirmed !== 'boolean') {
+      throw new PredictionDataError('The saved Premier League table is malformed.')
+    }
+    parsed.table = { order: [...candidate.order], confirmed: candidate.confirmed }
+  }
   for (const cup of cupQuestions) if (typeof cups[cup] === 'string') parsed.cups[cup] = normalizeManualAnswer(cups[cup])
   for (const question of leagueQuestions) {
     const answer = questions[question.id]
