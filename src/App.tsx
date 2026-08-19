@@ -34,11 +34,13 @@ import {
   PredictionDataError,
   SCORING_ALLOCATION,
   SCORING_TOTAL,
-  suggestionCatalog,
+  searchSuggestionOptions,
   type ClubId,
+  type PredictionOption,
   type PredictionPayload,
   type ScoreAnswer,
 } from './predictions'
+import predictionOptions from './data/prediction-options.json'
 
 const workspaceTabs = [
   'Premier League table',
@@ -53,6 +55,9 @@ const compactTabLabel: Record<(typeof workspaceTabs)[number], string> = {
   'Premier League questions': 'Questions',
   'Review & lock': 'Review',
 }
+
+const cupSuggestionOptions = predictionOptions.cups as Record<string, PredictionOption[]>
+const questionSuggestionOptions = predictionOptions.questions as Record<string, PredictionOption[]>
 
 function PersonIcon({ className = '' }: { className?: string }) {
   return <svg className={className} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
@@ -472,7 +477,7 @@ function ReviewAndLock({ predictions, count, saveState, changed, confirmed, erro
   return <div className="review-lock"><h2>Review and lock</h2><p className="review-count">{count} of 39 answered</p><p>Unanswered fields will show as No prediction.</p>
     <ReviewContent predictions={predictions} onEdit={onEdit} />
     <ScoringReference />
-    <label className="lock-confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => onConfirmed(event.target.checked)} /> I understand this entry becomes read-only and only Keshav can reopen it.</label>
+    <label className="lock-confirmation"><input type="checkbox" checked={confirmed} onChange={(event) => onConfirmed(event.target.checked)} /> I agree to lock in my predictions.</label>
     {lockReason && <p className="lock-reason" role="status">{lockReason}</p>}{error && <p className="lock-error" role="alert">{error}</p>}
     <button className="primary-button lock-button" type="button" disabled={!canLock} onClick={() => onLock()}>Lock my predictions</button>
     {error && <button className="secondary-button" type="button" disabled={!canRetry} onClick={() => onLock(true)}>Retry locking</button>}
@@ -632,10 +637,90 @@ function TablePredictionFields({ predictions, onUpdate }: { predictions: Predict
   </>
 }
 
+function LocalCombobox({
+  id,
+  label,
+  value,
+  options,
+  placeholder,
+  onChange,
+}: {
+  id: string
+  label: string
+  value: string
+  options: readonly PredictionOption[]
+  placeholder: string
+  onChange: (value: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
+  const matches = searchSuggestionOptions(options, value)
+  const hasMoreMatches = searchSuggestionOptions(options, value, 51).length > matches.length
+  const listId = `${id}-suggestions`
+
+  const choose = (option: PredictionOption) => {
+    onChange(option.value)
+    setOpen(false)
+    setActiveIndex(-1)
+  }
+  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown') {
+      event.preventDefault()
+      setOpen(true)
+      setActiveIndex((current) => Math.min(current + 1, matches.length - 1))
+    } else if (event.key === 'ArrowUp') {
+      event.preventDefault()
+      setOpen(true)
+      setActiveIndex((current) => Math.max(current - 1, 0))
+    } else if (event.key === 'Enter' && open && activeIndex >= 0 && matches[activeIndex]) {
+      event.preventDefault()
+      choose(matches[activeIndex])
+    } else if (event.key === 'Escape') {
+      setOpen(false)
+      setActiveIndex(-1)
+    }
+  }
+
+  return <div className="local-combobox">
+    <input
+      id={id}
+      role="combobox"
+      aria-label={label}
+      aria-autocomplete="list"
+      aria-controls={listId}
+      aria-expanded={open}
+      aria-activedescendant={open && activeIndex >= 0 ? `${listId}-${activeIndex}` : undefined}
+      maxLength={120}
+      value={value}
+      onFocus={() => setOpen(true)}
+      onBlur={() => window.setTimeout(() => setOpen(false), 120)}
+      onKeyDown={handleKeyDown}
+      onChange={(event) => { onChange(event.target.value); setOpen(true); setActiveIndex(-1) }}
+      placeholder={placeholder}
+    />
+    {open && <div className="suggestion-popover">
+      <ul id={listId} className="suggestion-list" role="listbox" aria-label={`${label} suggestions`}>
+        {matches.map((option, index) => <li
+          id={`${listId}-${index}`}
+          key={`${option.value}-${option.secondary ?? ''}`}
+          role="option"
+          aria-selected={index === activeIndex}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => choose(option)}
+        >
+          <span>{option.label}</span>{option.secondary && <small>{option.secondary}</small>}
+        </li>)}
+        {!matches.length && <li className="suggestion-empty" role="option" aria-disabled="true">No local match — you can still enter your own answer.</li>}
+      </ul>
+      {hasMoreMatches && <p className="suggestion-refine">Showing the first 50 matches. Refine your search.</p>}
+    </div>}
+  </div>
+}
+
 function AnswerFields({ predictions, onText }: { predictions: PredictionPayload; onText: (group: 'cups' | 'questions', id: string, value: string) => void }) {
   return <><h2>Cup winners</h2><div className="answer-grid">
-    {cupQuestions.map((cup) => <label className="answer-card" key={cup}>{cup}<input list="club-suggestions" maxLength={120} value={predictions.cups[cup] ?? ''} onChange={(event) => onText('cups', cup, event.target.value)} placeholder="Choose or type a club" /></label>)}
-  </div><datalist id="club-suggestions">{suggestionCatalog.map((name) => <option value={name} key={name} />)}</datalist></>
+    {cupQuestions.map((cup) => <div className="answer-card" key={cup}><label htmlFor={`cup-${cup}`}>{cup}</label><LocalCombobox id={`cup-${cup}`} label={cup} value={predictions.cups[cup] ?? ''} options={cupSuggestionOptions[cup]} onChange={(value) => onText('cups', cup, value)} placeholder="Choose or type a club" /></div>)}
+  </div></>
 }
 
 function QuestionFields({ predictions, onText, onNumber, onScore }: { predictions: PredictionPayload; onText: (group: 'cups' | 'questions', id: string, value: string) => void; onNumber: (id: string, value: string) => void; onScore: (id: string, side: keyof ScoreAnswer, value: string) => void }) {
@@ -644,9 +729,9 @@ function QuestionFields({ predictions, onText, onNumber, onScore }: { prediction
       {question.helper && <details><summary>What counts as a set-piece goal?</summary><p>{question.helper}</p></details>}
       {question.kind === 'number' ? <input id={question.id} inputMode="numeric" pattern="[0-9]*" value={(predictions.questions[question.id] as number | undefined) ?? ''} onChange={(event) => onNumber(question.id, event.target.value)} placeholder="0" aria-label={question.label} /> :
        question.kind === 'score' ? <div className="score-inputs"><input inputMode="numeric" pattern="[0-9]*" value={(predictions.questions[question.id] as ScoreAnswer | undefined)?.home ?? ''} onChange={(event) => onScore(question.id, 'home', event.target.value)} aria-label={`${question.label}: home score`} placeholder="Home" /><span aria-hidden="true">–</span><input inputMode="numeric" pattern="[0-9]*" value={(predictions.questions[question.id] as ScoreAnswer | undefined)?.away ?? ''} onChange={(event) => onScore(question.id, 'away', event.target.value)} aria-label={`${question.label}: away score`} placeholder="Away" /></div> :
-       <input id={question.id} list="people-suggestions" maxLength={120} value={(predictions.questions[question.id] as string | undefined) ?? ''} onChange={(event) => onText('questions', question.id, event.target.value)} placeholder={question.kind === 'manager-departure' ? 'Choose a manager or no departure' : 'Choose or type an answer'} />}
+       <LocalCombobox id={question.id} label={question.label} value={(predictions.questions[question.id] as string | undefined) ?? ''} options={questionSuggestionOptions[question.id]} onChange={(value) => onText('questions', question.id, value)} placeholder={question.kind === 'manager-departure' ? 'Choose a manager or no departure' : 'Choose or type an answer'} />}
     </div>)}
-  </div><datalist id="people-suggestions">{suggestionCatalog.map((name) => <option value={name} key={name} />)}</datalist></>
+  </div></>
 }
 
 export function App({ loadCompetition = loadCompetitionHome, predictionStore }: { loadCompetition?: CompetitionLoader; predictionStore?: PredictionStore }) {

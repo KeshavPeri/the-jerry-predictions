@@ -101,7 +101,7 @@ describe('competition home', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
     await screen.findByText('Saved')
     fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
-    expect(screen.getAllByRole('combobox').map((input) => input.closest('label')?.textContent)).toEqual([
+    expect(screen.getAllByRole('combobox').map((input) => input.getAttribute('aria-label'))).toEqual([
       'UEFA Champions League', 'UEFA Europa League', 'UEFA Conference League', 'FA Cup', 'Carabao Cup',
     ])
     fireEvent.change(screen.getByLabelText('UEFA Champions League'), { target: { value: '  Real   Madrid ' } })
@@ -109,6 +109,38 @@ describe('competition home', () => {
     expect(save.mock.calls[0][1].cups['UEFA Champions League']).toBe('Real Madrid')
     expect(screen.getByText('Saved')).toBeInTheDocument()
     expect(screen.getByText('In progress')).toBeInTheDocument()
+  })
+
+  it('uses field-specific suggestions, canonicalizes an explicit selection, and keeps manual text', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
+    const faCup = screen.getByRole('combobox', { name: 'FA Cup' })
+    fireEvent.focus(faCup)
+    expect(screen.getByRole('listbox', { name: 'FA Cup suggestions' })).toHaveTextContent('Arsenal')
+    expect(screen.queryByRole('option', { name: /No managerial departure/i })).not.toBeInTheDocument()
+    fireEvent.change(faCup, { target: { value: '  made up    united ' } })
+    expect(faCup).toHaveValue('made up united')
+    fireEvent.keyDown(faCup, { key: 'ArrowDown' })
+    fireEvent.keyDown(faCup, { key: 'Enter' })
+    expect(faCup).toHaveValue('made up united')
+    fireEvent.change(faCup, { target: { value: 'arsenal' } })
+    fireEvent.keyDown(faCup, { key: 'ArrowDown' })
+    fireEvent.keyDown(faCup, { key: 'Enter' })
+    expect(faCup).toHaveValue('Arsenal FC')
+    await waitFor(() => expect(save).toHaveBeenCalled(), { timeout: 1500 })
+    expect(save.mock.calls.at(-1)?.[1].cups['FA Cup']).toBe('Arsenal FC')
+  })
+
+  it('uses the exact lock-in confirmation text', async () => {
+    const saved = { ...emptyPredictions(), cups: { 'FA Cup': 'Arsenal' } }
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve(), lock: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
+    expect(screen.getByLabelText('I agree to lock in my predictions.')).toBeInTheDocument()
   })
 
   it('keeps failed input visible and retries it', async () => {
