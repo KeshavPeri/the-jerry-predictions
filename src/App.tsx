@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   readSelectedProfile,
   rememberSelectedProfile,
@@ -7,10 +7,23 @@ import {
 } from './competition'
 import {
   CompetitionLoadError,
+  createPredictionStore,
   loadCompetitionHome,
   type CompetitionLoader,
   type LoadFailureKind,
+  type PredictionStore,
 } from './supabase'
+import {
+  answeredCount,
+  cupQuestions,
+  emptyPredictions,
+  leagueQuestions,
+  normalizeManualAnswer,
+  parseWholeNumber,
+  suggestionCatalog,
+  type PredictionPayload,
+  type ScoreAnswer,
+} from './predictions'
 
 const workspaceTabs = [
   'Premier League table',
@@ -136,8 +149,63 @@ function CompetitionHomeView({
   )
 }
 
-function Workspace({ profile, onSwitch }: { profile: Profile; onSwitch: () => void }) {
+function Workspace({ profile, onSwitch, predictionStore, onStatusSaved }: { profile: Profile; onSwitch: () => void; predictionStore: PredictionStore; onStatusSaved: (hasPredictions: boolean) => void }) {
   const [activeTab, setActiveTab] = useState<(typeof workspaceTabs)[number]>(workspaceTabs[0])
+  const [predictions, setPredictions] = useState<PredictionPayload>(emptyPredictions)
+  const [saveState, setSaveState] = useState<'loading' | 'saved' | 'saving' | 'failed' | 'offline'>('loading')
+  const [changed, setChanged] = useState(false)
+  const pending = useRef<PredictionPayload | null>(null)
+
+  useEffect(() => {
+    let active = true
+    void predictionStore.load(profile.id).then((loaded) => {
+      if (!active) return
+      setPredictions(loaded)
+      setSaveState('saved')
+    }).catch(() => active && setSaveState('offline'))
+    return () => { active = false }
+  }, [profile.id, predictionStore])
+
+  const write = useCallback((value: PredictionPayload) => {
+    pending.current = value
+    if (!navigator.onLine) { setSaveState('offline'); return }
+    setSaveState('saving')
+    void predictionStore.save(profile.id, value).then(() => {
+      if (pending.current === value) { setSaveState('saved'); setChanged(false); onStatusSaved(answeredCount(value) > 0) }
+    }).catch(() => pending.current === value && setSaveState('failed'))
+  }, [onStatusSaved, predictionStore, profile.id])
+  useEffect(() => {
+    if (!changed) return
+    const timeout = window.setTimeout(() => write(predictions), 550)
+    return () => window.clearTimeout(timeout)
+  }, [predictions, changed, write])
+
+  const update = (next: PredictionPayload) => { setPredictions(next); setChanged(true) }
+  const saveText = (group: 'cups' | 'questions', id: string, value: string) => {
+    const normalized = normalizeManualAnswer(value)
+    const fields = { ...predictions[group] }
+    if (normalized) fields[id] = normalized
+    else delete fields[id]
+    update({ ...predictions, [group]: fields })
+  }
+  const saveNumber = (id: string, raw: string) => {
+    const fields = { ...predictions.questions }
+    if (!raw) delete fields[id]
+    else { const number = parseWholeNumber(raw); if (number === null) return; fields[id] = number }
+    update({ ...predictions, questions: fields })
+  }
+  const saveScore = (id: string, side: keyof ScoreAnswer, raw: string) => {
+    if (raw && parseWholeNumber(raw) === null) return
+    const current = predictions.questions[id] as ScoreAnswer | undefined
+    const score: ScoreAnswer = { home: current?.home ?? null, away: current?.away ?? null, [side]: raw ? parseWholeNumber(raw) : null }
+    const fields = { ...predictions.questions }
+    if (score.home === null && score.away === null) delete fields[id]
+    else fields[id] = score
+    update({ ...predictions, questions: fields })
+  }
+  const retry = () => pending.current && write(pending.current)
+  const count = answeredCount(predictions)
+  const statusText = saveState === 'loading' ? 'Loading saved draft' : saveState === 'saving' ? 'Saving' : saveState === 'failed' ? 'Not saved' : saveState === 'offline' ? 'Offline — changes are not shared' : 'Saved'
   return (
     <section className="workspace-card" aria-labelledby="workspace-title">
       <header className="workspace-header">
@@ -157,6 +225,11 @@ function Workspace({ profile, onSwitch }: { profile: Profile; onSwitch: () => vo
       </header>
 
       <p className="honour-note">Profiles are shared on trust—there is no sign-in or verified identity.</p>
+
+      <div className={`save-status save-${saveState}`} role="status" aria-live="polite">
+        <span>{statusText}</span><span>{count} of 19 cup and question predictions answered</span>
+        {saveState === 'failed' && <button className="secondary-button" type="button" onClick={retry}>Retry</button>}
+      </div>
 
       <div className="tab-strip" role="tablist" aria-label="Prediction workspace">
         {workspaceTabs.map((tab, index) => (
@@ -180,16 +253,35 @@ function Workspace({ profile, onSwitch }: { profile: Profile; onSwitch: () => vo
         aria-labelledby={`tab-${workspaceTabs.indexOf(activeTab)}`}
         tabIndex={0}
       >
-        <p className="state-kicker">Workspace preview</p>
-        <h2>{activeTab}</h2>
-        <p>This section is ready for its focused prediction feature.</p>
+        {activeTab === 'Cup winners' && <AnswerFields predictions={predictions} onText={saveText} />}
+        {activeTab === 'Premier League questions' && <QuestionFields predictions={predictions} onText={saveText} onNumber={saveNumber} onScore={saveScore} />}
+        {activeTab === 'Premier League table' && <><p className="state-kicker">Next up</p><h2>Premier League table</h2><p>Table ranking arrives in the next focused feature. Cup and question answers are ready to save now.</p></>}
+        {activeTab === 'Review & lock' && <><p className="state-kicker">Draft review</p><h2>{count} predictions ready</h2><p>Review and locking arrive after the table prediction feature. Your saved cup and question answers remain editable.</p></>}
       </div>
     </section>
   )
 }
 
-export function App({ loadCompetition = loadCompetitionHome }: { loadCompetition?: CompetitionLoader }) {
+function AnswerFields({ predictions, onText }: { predictions: PredictionPayload; onText: (group: 'cups' | 'questions', id: string, value: string) => void }) {
+  return <><p className="state-kicker">Optional answers</p><h2>Cup winners</h2><p>Choose a suggestion or type any club. Leave a field blank to skip it.</p><div className="answer-grid">
+    {cupQuestions.map((cup) => <label className="answer-card" key={cup}>{cup}<input list="club-suggestions" maxLength={120} value={predictions.cups[cup] ?? ''} onChange={(event) => onText('cups', cup, event.target.value)} placeholder="Choose or type a club" /></label>)}
+  </div><datalist id="club-suggestions">{suggestionCatalog.map((name) => <option value={name} key={name} />)}</datalist></>
+}
+
+function QuestionFields({ predictions, onText, onNumber, onScore }: { predictions: PredictionPayload; onText: (group: 'cups' | 'questions', id: string, value: string) => void; onNumber: (id: string, value: string) => void; onScore: (id: string, side: keyof ScoreAnswer, value: string) => void }) {
+  return <><p className="state-kicker">Optional answers</p><h2>Premier League questions</h2><p>Suggestions are local only. You can always type a different answer.</p><div className="answer-grid">
+    {leagueQuestions.map((question) => <div className="answer-card" key={question.id}><label htmlFor={question.id}>{question.label}</label>
+      {question.helper && <details><summary>What counts as a set-piece goal?</summary><p>{question.helper}</p></details>}
+      {question.kind === 'number' ? <input id={question.id} inputMode="numeric" pattern="[0-9]*" value={(predictions.questions[question.id] as number | undefined) ?? ''} onChange={(event) => onNumber(question.id, event.target.value)} placeholder="0" aria-label={question.label} /> :
+       question.kind === 'score' ? <div className="score-inputs"><input inputMode="numeric" pattern="[0-9]*" value={(predictions.questions[question.id] as ScoreAnswer | undefined)?.home ?? ''} onChange={(event) => onScore(question.id, 'home', event.target.value)} aria-label={`${question.label}: home score`} placeholder="Home" /><span aria-hidden="true">–</span><input inputMode="numeric" pattern="[0-9]*" value={(predictions.questions[question.id] as ScoreAnswer | undefined)?.away ?? ''} onChange={(event) => onScore(question.id, 'away', event.target.value)} aria-label={`${question.label}: away score`} placeholder="Away" /></div> :
+       <input id={question.id} list="people-suggestions" maxLength={120} value={(predictions.questions[question.id] as string | undefined) ?? ''} onChange={(event) => onText('questions', question.id, event.target.value)} placeholder={question.kind === 'manager-departure' ? 'Choose a manager or no departure' : 'Choose or type an answer'} />}
+    </div>)}
+  </div><datalist id="people-suggestions">{suggestionCatalog.map((name) => <option value={name} key={name} />)}</datalist></>
+}
+
+export function App({ loadCompetition = loadCompetitionHome, predictionStore }: { loadCompetition?: CompetitionLoader; predictionStore?: PredictionStore }) {
   const [viewState, setViewState] = useState<ViewState>({ phase: 'loading' })
+  const [store] = useState<PredictionStore>(() => predictionStore ?? createPredictionStore())
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(0)
 
@@ -224,7 +316,17 @@ export function App({ loadCompetition = loadCompetitionHome }: { loadCompetition
   } else {
     const selectedProfile = viewState.competition.profiles.find(({ slug }) => slug === selectedSlug)
     content = selectedProfile ? (
-      <Workspace profile={selectedProfile} onSwitch={() => setSelectedSlug(null)} />
+      <Workspace key={selectedProfile.id} profile={selectedProfile} predictionStore={store} onSwitch={() => setSelectedSlug(null)} onStatusSaved={(hasPredictions) => {
+        setViewState((current) => current.phase !== 'ready' ? current : {
+          ...current,
+          competition: {
+            ...current.competition,
+            profiles: current.competition.profiles.map((profile) => profile.id === selectedProfile.id && profile.status !== 'Locked'
+              ? { ...profile, status: hasPredictions ? 'In progress' : 'Not started' }
+              : profile),
+          },
+        })
+      }} />
     ) : (
       <CompetitionHomeView
         competition={viewState.competition}

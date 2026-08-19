@@ -375,6 +375,63 @@ h2 {
   margin-bottom: 0;
 }
 
+.save-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.65rem 1rem;
+  padding: 0.8rem 1rem;
+  margin: 0 0 1.2rem;
+  color: var(--mist);
+  font-family: 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 0.8rem;
+  background: rgba(12, 19, 36, 0.68);
+  border: 1px solid var(--glass-border);
+  border-radius: 0.8rem;
+}
+
+.save-status span:first-child { color: var(--cyan); font-weight: 600; }
+.save-failed span:first-child { color: var(--coral); }
+.save-offline span:first-child { color: var(--gold); }
+.save-status .secondary-button { margin-left: auto; }
+
+.answer-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.9rem;
+  margin-top: 1.5rem;
+}
+
+.answer-card {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 1rem;
+  color: var(--ice);
+  font-weight: 600;
+  line-height: 1.4;
+  background: rgba(12, 19, 36, 0.58);
+  border: 1px solid var(--glass-border);
+  border-radius: 0.9rem;
+}
+
+.answer-card input {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.65rem 0.75rem;
+  color: var(--ice);
+  background: var(--deep-ink);
+  border: 1px solid rgba(154, 178, 255, 0.3);
+  border-radius: 0.6rem;
+}
+
+.answer-card input::placeholder { color: #8390aa; }
+.answer-card details { color: var(--mist); font-size: 0.875rem; font-weight: 400; }
+.answer-card summary { cursor: pointer; color: var(--cyan); }
+.answer-card details p { margin: 0.6rem 0 0; font-size: 0.875rem; }
+.score-inputs { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.45rem; }
+.score-inputs span { color: var(--mist); }
+
 .state-card {
   max-width: 35rem;
   padding: clamp(2rem, 8vw, 4rem);
@@ -448,6 +505,9 @@ h2 {
   .secondary-button {
     width: 100%;
   }
+
+  .answer-grid { grid-template-columns: 1fr; }
+  .save-status .secondary-button { margin-left: 0; }
 }
 
 @media (prefers-reduced-motion: reduce) {

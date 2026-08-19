@@ -69,7 +69,9 @@ export function hasPredictionValue(value: unknown): boolean {
   if (typeof value === 'string') return value.trim().length > 0
   if (typeof value === 'number' || typeof value === 'boolean') return true
   if (Array.isArray(value)) return value.some(hasPredictionValue)
-  if (isRecord(value)) return Object.values(value).some(hasPredictionValue)
+  if (isRecord(value)) return Object.entries(value)
+    .filter(([key]) => key !== 'version')
+    .some(([, answer]) => hasPredictionValue(answer))
   return false
 }
 
