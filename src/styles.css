@@ -222,6 +222,11 @@ h2 {
   border-color: color-mix(in srgb, var(--accent) 55%, transparent);
 }
 
+.profile-card.is-locked .profile-pennant {
+  border-color: color-mix(in srgb, var(--accent) 78%, white);
+  box-shadow: 0 0 1.4rem color-mix(in srgb, var(--accent) 46%, transparent);
+}
+
 .accent-violet {
   --accent: var(--violet);
 }
@@ -394,6 +399,21 @@ h2 {
 .save-failed span:first-child { color: var(--coral); }
 .save-offline span:first-child { color: var(--gold); }
 .save-status .secondary-button { margin-left: auto; }
+
+.review-group, .scoring-reference, .locked-entry { padding: 1rem; margin-top: 1.25rem; background: rgba(12, 19, 36, 0.58); border: 1px solid var(--glass-border); border-radius: 0.9rem; }
+.review-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.review-heading h3 { margin: 0; font-size: 1.05rem; }
+.text-button { min-height: 44px; color: var(--cyan); cursor: pointer; background: transparent; border: 0; text-decoration: underline; }
+.review-list { display: grid; gap: 0.65rem; margin: 1rem 0 0; }
+.review-list > div { display: grid; grid-template-columns: minmax(0, 1fr) minmax(7rem, auto); gap: 1rem; padding-top: 0.65rem; border-top: 1px solid var(--glass-border); }
+.review-list dt { color: var(--mist); }.review-list dd { margin: 0; text-align: right; }.no-prediction { color: var(--mist); font-style: italic; }
+.review-table { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.45rem 1rem; padding: 0; margin: 1rem 0 0; list-style: none; }.review-table li { display: flex; gap: 0.5rem; }.review-table span { color: var(--cyan); font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+.scoring-reference summary { color: var(--ice); font-weight: 600; cursor: pointer; }.scoring-reference p { margin: 0.8rem 0 0; }
+.lock-confirmation { display: flex; align-items: flex-start; gap: 0.7rem; padding: 1rem 0; line-height: 1.5; }.lock-confirmation input { width: 1.25rem; height: 1.25rem; margin-top: 0.15rem; accent-color: var(--violet); }
+.lock-reason, .lock-error { padding: 0.75rem 1rem; margin: 0; border-radius: 0.7rem; background: rgba(245, 201, 104, 0.12); color: var(--gold) !important; }.lock-error { background: rgba(255, 113, 135, 0.12); color: var(--coral) !important; }
+.lock-button:disabled { cursor: not-allowed; opacity: 0.55; }.locked-entry { --accent: var(--violet); border-color: color-mix(in srgb, var(--accent) 55%, var(--glass-border)); }
+.locked-pennant { display: grid; place-items: center; width: 3.25rem; height: 4.25rem; margin-bottom: 1rem; color: var(--ice); font-family: 'IBM Plex Mono', ui-monospace, monospace; background: color-mix(in srgb, var(--accent) 34%, var(--deep-ink)); border: 1px solid color-mix(in srgb, var(--accent) 78%, white); border-radius: 0.7rem 0.7rem 1.2rem 1.2rem; clip-path: polygon(0 0, 100% 0, 100% 76%, 50% 100%, 0 76%); box-shadow: 0 0 1.4rem color-mix(in srgb, var(--accent) 46%, transparent); }
+@media (prefers-reduced-motion: no-preference) { .profile-card.is-locked .profile-pennant, .locked-pennant { animation: pennant-lock-in 520ms ease-out both; } @keyframes pennant-lock-in { from { filter: brightness(1); transform: scale(0.96); } to { filter: brightness(1.23); transform: scale(1); } } }
 
 .answer-grid {
   display: grid;
