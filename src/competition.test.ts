@@ -28,6 +28,7 @@ describe('competition parsing', () => {
   it('maps blank drafts, nonblank drafts, and locked entries to display status', () => {
     expect(mapEntryStatus('draft', {})).toBe('Not started')
     expect(mapEntryStatus('draft', { answer: '  ' })).toBe('Not started')
+    expect(mapEntryStatus('draft', { version: 1, cups: {}, questions: {} })).toBe('Not started')
     expect(mapEntryStatus('draft', { answer: 'Arsenal' })).toBe('In progress')
     expect(mapEntryStatus('locked', {})).toBe('Locked')
   })

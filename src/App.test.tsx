@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { App } from './App'
 import { SELECTED_PROFILE_KEY, type CompetitionHome } from './competition'
 import { CompetitionLoadError } from './supabase'
+import { emptyPredictions, type PredictionPayload } from './predictions'
 
 const competition: CompetitionHome = {
   id: 'competition-id',
@@ -93,5 +94,100 @@ describe('competition home', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Try again' }))
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(2))
     expect(await screen.findByRole('button', { name: 'Continue as Keshav' })).toBeInTheDocument()
+  })
+
+  it('saves ordered cup and question answers after a short idle period', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
+    expect(screen.getAllByRole('combobox').map((input) => input.closest('label')?.textContent)).toEqual([
+      'UEFA Champions League', 'UEFA Europa League', 'UEFA Conference League', 'FA Cup', 'Carabao Cup',
+    ])
+    fireEvent.change(screen.getByLabelText('UEFA Champions League'), { target: { value: '  Real   Madrid ' } })
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
+    expect(save.mock.calls[0][1].cups['UEFA Champions League']).toBe('Real Madrid')
+    expect(screen.getByText('Saved')).toBeInTheDocument()
+    expect(screen.getByText('In progress')).toBeInTheDocument()
+  })
+
+  it('keeps failed input visible and retries it', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockRejectedValueOnce(new Error('nope')).mockResolvedValueOnce(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Premier League questions' }))
+    fireEvent.change(screen.getByLabelText('Golden Boot winner'), { target: { value: 'Cole Palmer' } })
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
+    expect(await screen.findByText('Not saved')).toBeInTheDocument()
+    expect(screen.getByLabelText('Golden Boot winner')).toHaveValue('Cole Palmer')
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('Saved')).toBeInTheDocument()
+  })
+
+  it('coalesces quick changes into one debounced write containing the latest answers', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
+    fireEvent.change(screen.getByLabelText('UEFA Champions League'), { target: { value: 'Arsenal' } })
+    fireEvent.change(screen.getByLabelText('FA Cup'), { target: { value: 'Chelsea' } })
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
+    expect(save.mock.calls[0][1].cups).toEqual({ 'UEFA Champions League': 'Arsenal', 'FA Cup': 'Chelsea' })
+  })
+
+  it('saves a cleared answer and returns the current profile to not started', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
+    const field = screen.getByLabelText('FA Cup')
+    fireEvent.change(field, { target: { value: 'Arsenal' } })
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
+    fireEvent.change(field, { target: { value: '' } })
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2), { timeout: 1500 })
+    expect(save.mock.calls[1][1].cups).toEqual({})
+    expect(screen.getByText('Not started')).toBeInTheDocument()
+  })
+
+  it('does not write while offline and clearly says changes are not shared', async () => {
+    const online = Object.getOwnPropertyDescriptor(window.navigator, 'onLine')
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false })
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
+    fireEvent.change(screen.getByLabelText('FA Cup'), { target: { value: 'Arsenal' } })
+    expect(await screen.findByText('Offline — changes are not shared', {}, { timeout: 1500 })).toBeInTheDocument()
+    expect(save).not.toHaveBeenCalled()
+    if (online) Object.defineProperty(window.navigator, 'onLine', online)
+  })
+
+  it('loads a saved shared draft when the profile workspace is opened again', async () => {
+    const saved = { ...emptyPredictions(), cups: { 'FA Cup': 'Arsenal' } }
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
+    expect(screen.getByLabelText('FA Cup')).toHaveValue('Arsenal')
+  })
+
+  it('reloads a partial score without counting it as a completed prediction', async () => {
+    const saved = {
+      ...emptyPredictions(),
+      questions: { 'arsenal-chelsea-emirates': { home: 2, away: null } },
+    }
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Premier League questions' }))
+    expect(screen.getByLabelText('Arsenal vs Chelsea at the Emirates — score prediction: home score')).toHaveValue('2')
+    expect(screen.getByLabelText('Arsenal vs Chelsea at the Emirates — score prediction: away score')).toHaveValue('')
+    expect(screen.getByText('0 of 19 cup and question predictions answered')).toBeInTheDocument()
   })
 })

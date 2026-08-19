@@ -203,3 +203,30 @@ Record material product decisions so a future run can reconstruct not only what 
 - **Confidence:** High
 - **Reversibility:** Moderate
 - **Authority:** Delegated product authority
+
+### 2026-08-19 — Store ticket 4 answers as a versioned profile payload
+
+- **Decision:** Save cup and Premier League-question answers as one versioned prediction payload per profile; each successful write replaces the prior saved payload.
+- **Because:** This directly implements the approved last-successful-save-wins behaviour without conflict merging.
+- **Evidence used:** Product brief / ticket 4 / existing Supabase prediction entry
+- **Confidence:** High
+- **Reversibility:** Moderate
+- **Authority:** Delegated product authority
+
+### 2026-08-19 — Ship baseline local suggestion catalogues for ticket 4
+
+- **Decision:** Package fixed Premier League clubs plus common European clubs and relevant people as local suggestions, while always allowing manual text entry.
+- **Because:** Live data is out of scope and an incomplete catalogue must never prevent a prediction.
+- **Evidence used:** Product brief / ticket 4 / no-football-API constraint
+- **Confidence:** High
+- **Reversibility:** Easy
+- **Authority:** Delegated product authority
+
+### 2026-08-19 — Validate ticket 4 manual and numeric answers explicitly
+
+- **Decision:** Trim and limit categorical manual answers to 120 characters; reject invalid numeric and score values instead of coercing them.
+- **Because:** Football names remain practical while participants receive an exact correction path for invalid values.
+- **Evidence used:** Product brief / ticket 4
+- **Confidence:** Medium
+- **Reversibility:** Easy
+- **Authority:** Delegated product authority

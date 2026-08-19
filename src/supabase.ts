@@ -5,6 +5,7 @@ import {
   parseCompetitionHome,
   type CompetitionHome,
 } from './competition'
+import { emptyPredictions, parsePredictionPayload, type PredictionPayload } from './predictions'
 
 export type LoadFailureKind = 'configuration' | 'empty' | 'invalid' | 'unavailable'
 
@@ -54,14 +55,44 @@ export function getSupabaseConfiguration(environment: BrowserEnvironment): {
 
 export type CompetitionLoader = () => Promise<CompetitionHome>
 
-export async function loadCompetitionHome(): Promise<CompetitionHome> {
+export interface PredictionStore {
+  load(profileId: string): Promise<PredictionPayload>
+  save(profileId: string, predictions: PredictionPayload): Promise<void>
+}
+
+function createBrowserClient() {
   const { url, publishableKey } = getSupabaseConfiguration({
     VITE_SUPABASE_URL: import.meta.env.VITE_SUPABASE_URL,
     VITE_SUPABASE_PUBLISHABLE_KEY: import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
   })
-  const client = createClient(url, publishableKey, {
+  return createClient(url, publishableKey, {
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false },
   })
+}
+
+export function createPredictionStore(): PredictionStore {
+  return {
+    async load(profileId) {
+      const response = await createBrowserClient()
+        .from('prediction_entries')
+        .select('predictions')
+        .eq('participant_id', profileId)
+        .maybeSingle()
+      if (response.error) throw new CompetitionLoadError('unavailable', response.error.message)
+      return response.data ? parsePredictionPayload(response.data.predictions) : emptyPredictions()
+    },
+    async save(profileId, predictions) {
+      const response = await createBrowserClient()
+        .from('prediction_entries')
+        .update({ predictions })
+        .eq('participant_id', profileId)
+      if (response.error) throw new CompetitionLoadError('unavailable', response.error.message)
+    },
+  }
+}
+
+export async function loadCompetitionHome(): Promise<CompetitionHome> {
+  const client = createBrowserClient()
 
   const competitionResponse = await client
     .from('competitions')
