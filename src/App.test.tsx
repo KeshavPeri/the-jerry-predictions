@@ -25,11 +25,11 @@ describe('competition home', () => {
 
   it('shows purposeful loading while shared data is pending', () => {
     render(<App loadCompetition={() => new Promise(() => undefined)} />)
-    expect(screen.getByRole('heading', { name: 'Opening the prediction room' })).toBeInTheDocument()
-    expect(screen.getByText(/Loading the shared competition/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Loading Jerry' })).toBeInTheDocument()
+    expect(screen.getByText(/Getting the latest predictions/)).toBeInTheDocument()
   })
 
-  it('renders the exact title, subtitle, ordered profiles, monograms, and statuses', async () => {
+  it('renders the exact title, subtitle, ordered profiles, silhouettes, and statuses', async () => {
     render(<App loadCompetition={() => Promise.resolve(competition)} />)
 
     const title = await screen.findByRole('heading', { level: 1, name: 'THE JERRY PREDICTIONS' })
@@ -44,10 +44,10 @@ describe('competition home', () => {
       'Continue as Parth',
     ])
     expect(buttons.map((button) => button.textContent)).toEqual([
-      'KEKeshavNot startedChoose',
-      'ANAnshulIn progressChoose',
-      'KIKshitijLockedChoose',
-      'PAParthNot startedChoose',
+      'KeshavNot startedChoose',
+      'AnshulIn progressChoose',
+      'KshitijLockedChoose',
+      'ParthNot startedChoose',
     ])
     expect(screen.getByText('1 of 4 locked')).toBeInTheDocument()
   })
@@ -59,8 +59,8 @@ describe('competition home', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Kshitij' }))
     expect(screen.getByRole('heading', { name: "Kshitij's predictions" })).toBeInTheDocument()
     expect(window.localStorage.getItem(SELECTED_PROFILE_KEY)).toBe('kshitij')
-    expect(screen.getByText('You’re locked in')).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /KI Kshitij/ })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: "Kshitij's locked entry" })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Kshitij' })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch profile' }))
     expect(screen.getByRole('button', { name: 'Continue as Keshav' })).toBeInTheDocument()
@@ -71,10 +71,10 @@ describe('competition home', () => {
   })
 
   it.each([
-    ['configuration', 'Competition setup is incomplete', false],
-    ['empty', 'Competition data is empty', true],
-    ['invalid', 'Competition data is incomplete', true],
-    ['unavailable', 'Competition data cannot be reached', true],
+    ['configuration', 'Jerry is not connected yet', false],
+    ['empty', 'No competition found', true],
+    ['invalid', 'Jerry needs attention', true],
+    ['unavailable', 'Jerry cannot load right now', true],
   ] as const)('renders a distinct %s failure state', async (kind, heading, retries) => {
     render(<App loadCompetition={() => Promise.reject(new CompetitionLoadError(kind, 'test failure'))} />)
 
@@ -187,7 +187,7 @@ describe('competition home', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Premier League questions' }))
     expect(screen.getByLabelText('Arsenal vs Chelsea at the Emirates — score prediction: home score')).toHaveValue('2')
     expect(screen.getByLabelText('Arsenal vs Chelsea at the Emirates — score prediction: away score')).toHaveValue('')
-    expect(screen.getByText('0 of 39 predictions answered')).toBeInTheDocument()
+    expect(screen.getByText('0 / 39 answered')).toBeInTheDocument()
   })
 
   it('keeps the alphabetical table unconfirmed until explicitly confirmed, then saves all twenty positions', async () => {
@@ -195,14 +195,14 @@ describe('competition home', () => {
     render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
     await screen.findByText('Saved')
-    expect(screen.getByText('Not confirmed — 0 table predictions included')).toBeInTheDocument()
+    expect(screen.getByText('Not confirmed')).toBeInTheDocument()
     expect(screen.getAllByRole('listitem')).toHaveLength(20)
     expect(screen.getByText('AFC Bournemouth')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Move AFC Bournemouth up' })).toBeDisabled()
     fireEvent.click(screen.getByRole('button', { name: 'Confirm table' }))
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
     expect(save.mock.calls[0][1].table).toEqual({ order: initialTableOrder, confirmed: true })
-    expect(screen.getByText('20 of 39 predictions answered')).toBeInTheDocument()
+    expect(screen.getByText('20 / 39 answered')).toBeInTheDocument()
   })
 
   it('reorders with controls, announces the new position, and saves an unconfirmed draft', async () => {
@@ -221,8 +221,10 @@ describe('competition home', () => {
     render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
     await screen.findByText('Saved')
-    fireEvent.pointerDown(screen.getByRole('button', { name: 'Drag AFC Bournemouth' }))
-    fireEvent.pointerUp(screen.getAllByRole('listitem')[1])
+    const handle = screen.getByRole('button', { name: 'Drag AFC Bournemouth' })
+    fireEvent.pointerDown(handle, { pointerId: 1, pointerType: 'mouse', button: 0, clientY: 100 })
+    fireEvent.pointerMove(handle, { pointerId: 1, pointerType: 'mouse', clientY: 120 })
+    fireEvent.pointerUp(screen.getAllByRole('listitem')[1], { pointerId: 1, pointerType: 'mouse', clientY: 120 })
     expect(await screen.findByText('AFC Bournemouth moved to position 2. Table needs confirmation.')).toBeInTheDocument()
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
     expect(save.mock.calls[0][1].table?.order.slice(0, 2)).toEqual(['arsenal', 'afc-bournemouth'])
@@ -234,7 +236,7 @@ describe('competition home', () => {
     render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(saved), save }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
     await screen.findByText('Saved')
-    expect(screen.getByText('Confirmed — 20 predictions included')).toBeInTheDocument()
+    expect(screen.getByText('Confirmed · 20 positions')).toBeInTheDocument()
     expect(screen.getAllByRole('listitem')[0]).toHaveTextContent('Tottenham Hotspur')
     fireEvent.click(screen.getByRole('button', { name: 'Skip table' }))
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1), { timeout: 1500 })
@@ -245,8 +247,8 @@ describe('competition home', () => {
     const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
     render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.reject(new PredictionDataError('malformed table')), save }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
-    expect(await screen.findByText('We could not safely load this table')).toBeInTheDocument()
-    expect(screen.getAllByText('Saved table needs attention')).toHaveLength(2)
+    expect(await screen.findByText('This table needs attention')).toBeInTheDocument()
+    expect(screen.getByText('Saved table needs attention')).toBeInTheDocument()
     expect(save).not.toHaveBeenCalled()
   })
 
@@ -256,11 +258,13 @@ describe('competition home', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
     await screen.findByText('Saved')
     fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
-    expect(screen.getByRole('heading', { name: '0 predictions ready' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Review and lock' })).toBeInTheDocument()
+    expect(screen.getByText('0 of 39 answered')).toBeInTheDocument()
     expect(screen.getAllByText('No prediction').length).toBeGreaterThan(10)
     expect(screen.getByText('Add at least one valid prediction before locking.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Lock my predictions' })).toBeDisabled()
-    expect(screen.getByText('Scoring reference — 277 points available')).toBeInTheDocument()
+    expect(screen.getByRole('region', { name: 'Scoring' })).toHaveTextContent('277')
+    expect(screen.getByText('3 for the correct result, plus 4 for the exact score.')).toBeInTheDocument()
   })
 
   it('locks a valid saved entry atomically and makes the workspace read-only', async () => {
@@ -273,11 +277,11 @@ describe('competition home', () => {
     fireEvent.click(screen.getByRole('checkbox'))
     fireEvent.click(screen.getByRole('button', { name: 'Lock my predictions' }))
     await waitFor(() => expect(lock).toHaveBeenCalledWith('ke', saved))
-    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: "Keshav's locked entry" })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Confirm table' })).not.toBeInTheDocument()
     expect(screen.getByText('FA Cup')).toBeInTheDocument()
     expect(screen.getByText('Arsenal')).toBeInTheDocument()
-    expect(screen.getAllByText('KE').length).toBeGreaterThanOrEqual(2)
+    expect(screen.queryByText('KE')).not.toBeInTheDocument()
   })
 
   it('treats numeric zero and a 0–0 score as valid answers, and only confirmed tables count', async () => {
@@ -313,7 +317,7 @@ describe('competition home', () => {
     expect(await screen.findByRole('button', { name: 'Retry locking' })).toBeEnabled()
     fireEvent.click(screen.getByRole('button', { name: 'Retry locking' }))
     await waitFor(() => expect(lock).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: "Keshav's locked entry" })).toBeInTheDocument()
   })
 
   it('blocks locking while a draft save is pending, failed, or offline', async () => {
@@ -345,7 +349,7 @@ describe('competition home', () => {
     const saved = { ...emptyPredictions(), table: { order: initialTableOrder, confirmed: true }, cups: { 'FA Cup': 'Arsenal' }, questions: { 'chelsea-red-cards': 0 } }
     render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve() }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Kshitij' }))
-    expect(await screen.findByText("Kshitij's entry is read-only")).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: "Kshitij's locked entry" })).toBeInTheDocument()
     expect(screen.getAllByText('Arsenal').length).toBeGreaterThan(1)
     expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Lock my predictions' })).not.toBeInTheDocument()
@@ -357,7 +361,7 @@ describe('competition home', () => {
     const reopenedCompetition = { ...competition, profiles: competition.profiles.map((profile) => profile.slug === 'keshav' ? { ...profile, status: 'In progress' as const } : profile) }
     const first = render(<App loadCompetition={() => Promise.resolve(lockedCompetition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve() }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
-    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: "Keshav's locked entry" })).toBeInTheDocument()
     first.unmount()
     render(<App loadCompetition={() => Promise.resolve(reopenedCompetition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve() }} />)
     await screen.findByText('Saved')
@@ -387,7 +391,7 @@ describe('competition home', () => {
     await screen.findByText('Saved')
     fireEvent.click(screen.getByRole('button', { name: 'Confirm table' }))
     await waitFor(() => expect(save).toHaveBeenCalled())
-    expect(screen.getByText('20 of 39 predictions answered')).toBeInTheDocument()
+    expect(screen.getByText('20 / 39 answered')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
     fireEvent.click(screen.getByRole('checkbox'))
     expect(screen.getByRole('button', { name: 'Lock my predictions' })).toBeEnabled()
@@ -418,19 +422,19 @@ describe('competition home', () => {
     }
     render(<App loadCompetition={loader} predictionStore={store} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
-    expect(await screen.findByText('You’re locked in')).toBeInTheDocument()
-    expect(screen.getByText('Not started — waiting')).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: "Keshav's locked entry" })).toBeInTheDocument()
+    expect(within(screen.getByRole('list', { name: 'Participant lock statuses' })).getAllByText('Not started')).toHaveLength(1)
     expect(within(screen.getByRole('tablist', { name: 'Locked participant entries' })).getAllByRole('tab')).toHaveLength(3)
-    fireEvent.click(screen.getByRole('tab', { name: /AN Anshul/ }))
-    expect(await screen.findByText("Anshul's entry is read-only")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Anshul' }))
+    expect(await screen.findByRole('heading', { name: "Anshul's locked entry" })).toBeInTheDocument()
     expect(screen.getByText('No table prediction')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Refresh statuses' }))
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(2))
-    expect(screen.getByRole('tab', { name: /AN Anshul/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Anshul' })).toHaveAttribute('aria-selected', 'true')
     fireEvent.click(screen.getByRole('button', { name: 'Refresh statuses' }))
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(3))
-    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: /AN Anshul/ })).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: "Keshav's locked entry" })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Anshul' })).not.toBeInTheDocument()
   })
 
   it('does not expose a locked friend when their prediction payload cannot be read safely', async () => {
@@ -445,11 +449,11 @@ describe('competition home', () => {
       save: () => Promise.resolve(),
     }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
-    fireEvent.click(await screen.findByRole('tab', { name: /AN Anshul/ }))
-    expect(await screen.findByText('We could not load this locked entry')).toBeInTheDocument()
-    expect(screen.queryByText('No prediction details are shown until the shared entry can be read safely.')).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('tab', { name: 'Anshul' }))
+    expect(await screen.findByText('This entry could not load')).toBeInTheDocument()
+    expect(screen.getByText('Try again or return to your entry.')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Return to my entry' }))
-    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: "Keshav's locked entry" })).toBeInTheDocument()
   })
 
   it('keeps the most recently selected locked entry when an earlier request resolves last', async () => {
@@ -466,10 +470,10 @@ describe('competition home', () => {
       save: () => Promise.resolve(),
     }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
-    fireEvent.click(await screen.findByRole('tab', { name: /AN Anshul/ }))
-    fireEvent.click(screen.getByRole('tab', { name: /KI Kshitij/ }))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Anshul' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Kshitij' }))
     resolveKshitij({ ...emptyPredictions(), cups: { 'FA Cup': 'Kshitij choice' } })
-    expect(await screen.findByText("Kshitij's entry is read-only")).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: "Kshitij's locked entry" })).toBeInTheDocument()
     expect(screen.getByText('Kshitij choice')).toBeInTheDocument()
     resolveAnshul({ ...emptyPredictions(), cups: { 'FA Cup': 'Anshul stale choice' } })
     await waitFor(() => expect(screen.getByText('Kshitij choice')).toBeInTheDocument())
@@ -501,18 +505,18 @@ describe('competition home', () => {
       save: () => Promise.resolve(),
     }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
-    fireEvent.click(await screen.findByRole('tab', { name: /AN Anshul/ }))
+    fireEvent.click(await screen.findByRole('tab', { name: 'Anshul' }))
     expect(await screen.findByText('Stale Anshul entry')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Refresh statuses' }))
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(2))
-    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
-    expect(screen.queryByRole('tab', { name: /AN Anshul/ })).not.toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: "Keshav's locked entry" })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: 'Anshul' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Refresh statuses' }))
     await waitFor(() => expect(loader).toHaveBeenCalledTimes(3))
-    expect(screen.getByRole('tab', { name: /KE Keshav/ })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: /AN Anshul/ })).toHaveAttribute('aria-selected', 'false')
+    expect(screen.getByRole('tab', { name: 'Keshav' })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: 'Anshul' })).toHaveAttribute('aria-selected', 'false')
     expect(screen.queryByText('Stale Anshul entry')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('tab', { name: /AN Anshul/ }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Anshul' }))
     expect(await screen.findByText('Fresh Anshul entry')).toBeInTheDocument()
   })
 
@@ -530,7 +534,7 @@ describe('competition home', () => {
     }
     render(<App loadCompetition={() => Promise.resolve(fixture)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save: () => Promise.resolve() }} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
-    const subjectTab = screen.queryByRole('tab', { name: /AN Anshul/ })
+    const subjectTab = screen.queryByRole('tab', { name: 'Anshul' })
     expect(subjectTab !== null).toBe(subjectAvailable)
     if (viewerStatus !== 'Locked') expect(screen.queryByRole('tablist', { name: 'Locked participant entries' })).toBeNull()
   })
@@ -547,7 +551,7 @@ describe('competition home', () => {
       expect(lockedTabs).toBeNull()
     } else {
       expect(within(lockedTabs as HTMLElement).getAllByRole('tab')).toHaveLength(lockedCount)
-      expect(screen.queryAllByText(/— waiting/)).toHaveLength(4 - lockedCount)
+      expect(within(screen.getByRole('list', { name: 'Participant lock statuses' })).getAllByRole('listitem')).toHaveLength(4)
     }
   })
 })
