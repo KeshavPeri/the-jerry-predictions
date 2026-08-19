@@ -246,3 +246,11 @@ Record material product decisions so a future run can reconstruct not only what 
 - **Consequences:** Invalid saved table data (missing, duplicate, or unknown clubs) must surface a non-destructive malformed-data state and must not be silently repaired or re-saved. Pointer/touch dragging is paired with explicit movement controls and live announcements.
 - **Reversibility:** Moderate.
 - **Authority:** Delegated product authority
+
+### 2026-08-19 — Use explicit refresh for rolling locked-entry reveal
+
+- **Decision:** The locked-predictions hub uses an explicit `Refresh statuses` action instead of a Supabase Realtime subscription. The viewer's own entry is the initial and fallback selection; if a selected friend is reopened or otherwise becomes unavailable, the hub returns to the viewer's entry. Unconfirmed or skipped tables render as `No table prediction`, while blank individual answers render as `No prediction`.
+- **Because:** Explicit refresh is an approved, simpler way to surface rolling locks without adding subscription lifecycle and consistency complexity. Falling back to the viewer's own entry avoids a surprising context switch and keeps a valid read-only entry visible. The wording preserves the all-or-nothing table rule.
+- **Consequences:** Refresh must retain the active reading selection when it remains eligible, remove reopened profiles from eligible tabs and content, and show scoped retry/error states for inconsistent locked status and prediction payloads.
+- **Reversibility:** Easy.
+- **Authority:** Delegated product authority

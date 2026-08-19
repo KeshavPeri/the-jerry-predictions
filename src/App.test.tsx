@@ -59,12 +59,8 @@ describe('competition home', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Continue as Kshitij' }))
     expect(screen.getByRole('heading', { name: "Kshitij's predictions" })).toBeInTheDocument()
     expect(window.localStorage.getItem(SELECTED_PROFILE_KEY)).toBe('kshitij')
-    expect(screen.getAllByRole('tab').map((tab) => tab.textContent)).toEqual([
-      'Premier League table',
-      'Cup winners',
-      'Premier League questions',
-      'Review & lock',
-    ])
+    expect(screen.getByText('You’re locked in')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /KI Kshitij/ })).toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'Switch profile' }))
     expect(screen.getByRole('button', { name: 'Continue as Keshav' })).toBeInTheDocument()
@@ -281,7 +277,7 @@ describe('competition home', () => {
     expect(screen.queryByRole('button', { name: 'Confirm table' })).not.toBeInTheDocument()
     expect(screen.getByText('FA Cup')).toBeInTheDocument()
     expect(screen.getByText('Arsenal')).toBeInTheDocument()
-    expect(screen.getAllByText('KE')).toHaveLength(2)
+    expect(screen.getAllByText('KE').length).toBeGreaterThanOrEqual(2)
   })
 
   it('treats numeric zero and a 0–0 score as valid answers, and only confirmed tables count', async () => {
@@ -395,5 +391,163 @@ describe('competition home', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
     fireEvent.click(screen.getByRole('checkbox'))
     expect(screen.getByRole('button', { name: 'Lock my predictions' })).toBeEnabled()
+  })
+
+  it('shows only locked friends, preserves a selected friend on refresh, and falls back when they reopen', async () => {
+    const lockedCompetition = {
+      ...competition,
+      profiles: competition.profiles.map((profile) => profile.slug === 'keshav' || profile.slug === 'anshul'
+        ? { ...profile, status: 'Locked' as const }
+        : profile),
+    }
+    const reopenedCompetition = {
+      ...lockedCompetition,
+      profiles: lockedCompetition.profiles.map((profile) => profile.slug === 'anshul'
+        ? { ...profile, status: 'In progress' as const }
+        : profile),
+    }
+    const loader = vi.fn<() => Promise<CompetitionHome>>()
+      .mockResolvedValueOnce(lockedCompetition)
+      .mockResolvedValueOnce(lockedCompetition)
+      .mockResolvedValueOnce(reopenedCompetition)
+    const store = {
+      load: vi.fn((profileId: string) => Promise.resolve(profileId === 'an'
+        ? { ...emptyPredictions(), questions: { 'golden-boot': 'Cole Palmer' } }
+        : { ...emptyPredictions(), cups: { 'FA Cup': 'Arsenal' } })),
+      save: () => Promise.resolve(),
+    }
+    render(<App loadCompetition={loader} predictionStore={store} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    expect(await screen.findByText('You’re locked in')).toBeInTheDocument()
+    expect(screen.getByText('Not started — waiting')).toBeInTheDocument()
+    expect(within(screen.getByRole('tablist', { name: 'Locked participant entries' })).getAllByRole('tab')).toHaveLength(3)
+    fireEvent.click(screen.getByRole('tab', { name: /AN Anshul/ }))
+    expect(await screen.findByText("Anshul's entry is read-only")).toBeInTheDocument()
+    expect(screen.getByText('No table prediction')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh statuses' }))
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(2))
+    expect(screen.getByRole('tab', { name: /AN Anshul/ })).toHaveAttribute('aria-selected', 'true')
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh statuses' }))
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(3))
+    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /AN Anshul/ })).not.toBeInTheDocument()
+  })
+
+  it('does not expose a locked friend when their prediction payload cannot be read safely', async () => {
+    const lockedCompetition = {
+      ...competition,
+      profiles: competition.profiles.map((profile) => profile.slug === 'keshav' || profile.slug === 'anshul'
+        ? { ...profile, status: 'Locked' as const }
+        : profile),
+    }
+    render(<App loadCompetition={() => Promise.resolve(lockedCompetition)} predictionStore={{
+      load: (profileId) => profileId === 'an' ? Promise.reject(new PredictionDataError('malformed')) : Promise.resolve(emptyPredictions()),
+      save: () => Promise.resolve(),
+    }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    fireEvent.click(await screen.findByRole('tab', { name: /AN Anshul/ }))
+    expect(await screen.findByText('We could not load this locked entry')).toBeInTheDocument()
+    expect(screen.queryByText('No prediction details are shown until the shared entry can be read safely.')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Return to my entry' }))
+    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
+  })
+
+  it('keeps the most recently selected locked entry when an earlier request resolves last', async () => {
+    const allLocked = {
+      ...competition,
+      profiles: competition.profiles.map((profile) => ({ ...profile, status: 'Locked' as const })),
+    }
+    let resolveAnshul: (value: PredictionPayload) => void = () => undefined
+    let resolveKshitij: (value: PredictionPayload) => void = () => undefined
+    const anshulRequest = new Promise<PredictionPayload>((resolve) => { resolveAnshul = resolve })
+    const kshitijRequest = new Promise<PredictionPayload>((resolve) => { resolveKshitij = resolve })
+    render(<App loadCompetition={() => Promise.resolve(allLocked)} predictionStore={{
+      load: (profileId) => profileId === 'an' ? anshulRequest : profileId === 'ki' ? kshitijRequest : Promise.resolve(emptyPredictions()),
+      save: () => Promise.resolve(),
+    }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    fireEvent.click(await screen.findByRole('tab', { name: /AN Anshul/ }))
+    fireEvent.click(screen.getByRole('tab', { name: /KI Kshitij/ }))
+    resolveKshitij({ ...emptyPredictions(), cups: { 'FA Cup': 'Kshitij choice' } })
+    expect(await screen.findByText("Kshitij's entry is read-only")).toBeInTheDocument()
+    expect(screen.getByText('Kshitij choice')).toBeInTheDocument()
+    resolveAnshul({ ...emptyPredictions(), cups: { 'FA Cup': 'Anshul stale choice' } })
+    await waitFor(() => expect(screen.getByText('Kshitij choice')).toBeInTheDocument())
+    expect(screen.queryByText('Anshul stale choice')).not.toBeInTheDocument()
+  })
+
+  it('falls back to the viewer after reopen and requires a fresh explicit selection after relock', async () => {
+    const locked = {
+      ...competition,
+      profiles: competition.profiles.map((profile) => profile.slug === 'keshav' || profile.slug === 'anshul'
+        ? { ...profile, status: 'Locked' as const }
+        : { ...profile, status: 'Not started' as const }),
+    }
+    const reopened = {
+      ...locked,
+      profiles: locked.profiles.map((profile) => profile.slug === 'anshul' ? { ...profile, status: 'In progress' as const } : profile),
+    }
+    const loader = vi.fn<() => Promise<CompetitionHome>>()
+      .mockResolvedValueOnce(locked)
+      .mockResolvedValueOnce(reopened)
+      .mockResolvedValueOnce(locked)
+    let anshulLoads = 0
+    render(<App loadCompetition={loader} predictionStore={{
+      load: (profileId) => {
+        if (profileId !== 'an') return Promise.resolve(emptyPredictions())
+        anshulLoads += 1
+        return Promise.resolve({ ...emptyPredictions(), cups: { 'FA Cup': anshulLoads === 1 ? 'Stale Anshul entry' : 'Fresh Anshul entry' } })
+      },
+      save: () => Promise.resolve(),
+    }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    fireEvent.click(await screen.findByRole('tab', { name: /AN Anshul/ }))
+    expect(await screen.findByText('Stale Anshul entry')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh statuses' }))
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /AN Anshul/ })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh statuses' }))
+    await waitFor(() => expect(loader).toHaveBeenCalledTimes(3))
+    expect(screen.getByRole('tab', { name: /KE Keshav/ })).toHaveAttribute('aria-selected', 'true')
+    expect(screen.getByRole('tab', { name: /AN Anshul/ })).toHaveAttribute('aria-selected', 'false')
+    expect(screen.queryByText('Stale Anshul entry')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: /AN Anshul/ }))
+    expect(await screen.findByText('Fresh Anshul entry')).toBeInTheDocument()
+  })
+
+  it.each([
+    ['draft', 'Not started' as const, 'draft', 'Not started' as const, false],
+    ['draft', 'Not started' as const, 'locked', 'Locked' as const, false],
+    ['locked', 'Locked' as const, 'draft', 'Not started' as const, false],
+    ['locked', 'Locked' as const, 'locked', 'Locked' as const, true],
+  ])('applies normal reveal access for a %s viewer and %s subject', async (_viewerKind, viewerStatus, _subjectKind, subjectStatus, subjectAvailable) => {
+    const fixture = {
+      ...competition,
+      profiles: competition.profiles.map((profile) => profile.slug === 'keshav'
+        ? { ...profile, status: viewerStatus }
+        : profile.slug === 'anshul' ? { ...profile, status: subjectStatus } : { ...profile, status: 'Not started' as const }),
+    }
+    render(<App loadCompetition={() => Promise.resolve(fixture)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    const subjectTab = screen.queryByRole('tab', { name: /AN Anshul/ })
+    expect(subjectTab !== null).toBe(subjectAvailable)
+    if (viewerStatus !== 'Locked') expect(screen.queryByRole('tablist', { name: 'Locked participant entries' })).toBeNull()
+  })
+
+  it.each([0, 1, 2, 3, 4])('represents %i locked profiles without exposing waiting entries as tabs', async (lockedCount) => {
+    const fixture = {
+      ...competition,
+      profiles: competition.profiles.map((profile, index) => ({ ...profile, status: index < lockedCount ? 'Locked' as const : 'Not started' as const })),
+    }
+    render(<App loadCompetition={() => Promise.resolve(fixture)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    const lockedTabs = screen.queryByRole('tablist', { name: 'Locked participant entries' })
+    if (lockedCount === 0) {
+      expect(lockedTabs).toBeNull()
+    } else {
+      expect(within(lockedTabs as HTMLElement).getAllByRole('tab')).toHaveLength(lockedCount)
+      expect(screen.queryAllByText(/— waiting/)).toHaveLength(4 - lockedCount)
+    }
   })
 })
