@@ -85,6 +85,38 @@ export const suggestionCatalog = [
   'Arne Slot', 'No managerial departure',
 ]
 
+export interface PredictionOption {
+  value: string
+  label: string
+  secondary?: string
+}
+
+/**
+ * Make catalogue search forgiving without changing the value a participant
+ * explicitly chooses. This deliberately treats accents, punctuation, and
+ * repeated whitespace as equivalent for lookup only.
+ */
+export function normalizeSuggestionSearch(value: string): string {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/g, ' ')
+}
+
+export function searchSuggestionOptions(
+  options: readonly PredictionOption[],
+  query: string,
+  limit = 50,
+): PredictionOption[] {
+  const normalizedQuery = normalizeSuggestionSearch(query)
+  return options
+    .filter((option) => !normalizedQuery || normalizeSuggestionSearch(`${option.label} ${option.secondary ?? ''}`).includes(normalizedQuery))
+    .slice(0, limit)
+}
+
 export interface ScoreAnswer { home: number | null; away: number | null }
 export interface TablePrediction { order: ClubId[]; confirmed: boolean }
 export interface PredictionPayload {

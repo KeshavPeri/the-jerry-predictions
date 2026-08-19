@@ -123,6 +123,21 @@ Record material product decisions so a future run can reconstruct not only what 
 
 ## Product Manager decisions
 
+### 2026-08-19 — Use field-specific accessible local suggestions for ticket 16
+
+- **Decision:** Replace the shared mixed suggestion catalogue with a local, field-specific combobox sourced from `prediction-options.json`. Preserve free-form manual entry, canonical stored values, and existing saved strings even when they are absent from the point-in-time catalogue.
+- **Because:** Field-specific suggestions prevent clubs, players, and managers from appearing in the wrong prediction fields; a custom combobox supports visible club context and reliable keyboard, touch, and assistive interaction for large local lists.
+- **Consequences:** Search normalizes case, diacritics, punctuation, and whitespace; results are capped initially with a refinement cue for responsive mobile use. Only explicit option selection stores a catalogue value.
+- **Reversibility:** Easy.
+- **Authority:** Delegated product authority
+
+### 2026-08-19 — Distinguish positive table zones with restrained treatments for ticket 16
+
+- **Decision:** Preserve existing textual table-boundary labels and use distinct muted tints plus border/left-accent treatments for champion, Champions League, Europa League, and Conference League rows.
+- **Because:** The approved design reference requires each positive zone to be distinguishable at a glance without a visual redesign or colour-only meaning.
+- **Reversibility:** Easy.
+- **Authority:** Delegated product authority
+
 ### 2026-08-19 — Review only confirmed Premier League tables as predictions
 
 - **Decision:** In Review & lock, a complete but unconfirmed Premier League table is shown as skipped rather than as twenty answers. The saved draft remains available for later confirmation.

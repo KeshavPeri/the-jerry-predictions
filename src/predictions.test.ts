@@ -1,10 +1,21 @@
 import { describe, expect, it } from 'vitest'
-import { answeredCount, emptyPredictions, initialTableOrder, isCompleteTableOrder, moveClub, normalizeManualAnswer, parsePredictionPayload, parseWholeNumber, PredictionDataError, SCORING_ALLOCATION, SCORING_TOTAL } from './predictions'
+import { answeredCount, emptyPredictions, initialTableOrder, isCompleteTableOrder, moveClub, normalizeManualAnswer, normalizeSuggestionSearch, parsePredictionPayload, parseWholeNumber, PredictionDataError, SCORING_ALLOCATION, SCORING_TOTAL, searchSuggestionOptions } from './predictions'
 
 describe('prediction payload helpers', () => {
   it('normalizes and limits manual answers', () => {
     expect(normalizeManualAnswer('  Ada   Lovelace  ')).toBe('Ada Lovelace')
     expect(normalizeManualAnswer('a'.repeat(121))).toHaveLength(120)
+  })
+
+  it('finds local suggestions across case, accents, punctuation, and repeated whitespace', () => {
+    const options = [
+      { value: 'Atlético de Madrid', label: 'Atlético de Madrid' },
+      { value: 'Paris Saint-Germain', label: 'Paris Saint-Germain', secondary: 'France' },
+    ]
+    expect(normalizeSuggestionSearch('  Atlético—DE   Madrid! ')).toBe('atletico de madrid')
+    expect(searchSuggestionOptions(options, 'ATLETICO de madrid')).toEqual([options[0]])
+    expect(searchSuggestionOptions(options, 'saint germ')).toEqual([options[1]])
+    expect(searchSuggestionOptions(options, '', 1)).toEqual([options[0]])
   })
   it('accepts only non-negative whole numbers', () => {
     expect(parseWholeNumber('0')).toBe(0)
