@@ -123,6 +123,15 @@ Record material product decisions so a future run can reconstruct not only what 
 
 ## Product Manager decisions
 
+### 2026-08-19 — Treat the competition subtitle as descriptive text
+
+- **Decision:** Render `2026/27 Football Prediction Competition` as a paragraph immediately beneath the existing page-level heading, not as a second heading.
+- **Because:** The subtitle describes the approved product name, preserves one clear page-level heading, and satisfies the smoke ticket's accessibility requirement without restructuring the scaffold.
+- **Evidence used:** Product brief / smoke feature issue / existing app shell
+- **Confidence:** High
+- **Reversibility:** Easy
+- **Authority:** Delegated product authority
+
 ### 2026-08-19 — Use a mobile-first tabbed workspace
 
 - **Decision:** Prediction entry uses tabs for Premier League Table, Cup Winners, Premier League Questions, and Review & Lock. Mobile is primary; desktop expands card layouts without changing the journey.

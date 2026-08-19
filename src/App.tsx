@@ -9,6 +9,9 @@ export function App() {
       <section className="room-card" aria-labelledby="product-title">
         <p className="eyebrow">Four seats · one season</p>
         <h1 id="product-title">THE JERRY PREDICTIONS</h1>
+        <p className="competition-subtitle">
+          2026/27 Football Prediction Competition
+        </p>
 
         <div className="pennant-rail" aria-hidden="true">
           {pennants.map((accent) => (
