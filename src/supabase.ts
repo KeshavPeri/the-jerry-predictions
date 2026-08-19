@@ -58,6 +58,8 @@ export type CompetitionLoader = () => Promise<CompetitionHome>
 export interface PredictionStore {
   load(profileId: string): Promise<PredictionPayload>
   save(profileId: string, predictions: PredictionPayload): Promise<void>
+  /** Atomically persists the final payload and changes a draft into a locked entry. */
+  lock?(profileId: string, predictions: PredictionPayload): Promise<void>
 }
 
 function createBrowserClient() {
@@ -86,7 +88,22 @@ export function createPredictionStore(): PredictionStore {
         .from('prediction_entries')
         .update({ predictions })
         .eq('participant_id', profileId)
+        .eq('status', 'draft')
+        .select('participant_id')
       if (response.error) throw new CompetitionLoadError('unavailable', response.error.message)
+      if (!response.data?.length) throw new CompetitionLoadError('unavailable', 'Locked entries cannot be changed.')
+    },
+    async lock(profileId, predictions) {
+      const response = await createBrowserClient()
+        .from('prediction_entries')
+        .update({ predictions, status: 'locked' })
+        .eq('participant_id', profileId)
+        .eq('status', 'draft')
+        .select('participant_id')
+      if (response.error) throw new CompetitionLoadError('unavailable', response.error.message)
+      if (!response.data?.length) {
+        throw new CompetitionLoadError('unavailable', 'This entry was no longer available to lock.')
+      }
     },
   }
 }

@@ -253,4 +253,147 @@ describe('competition home', () => {
     expect(screen.getAllByText('Saved table needs attention')).toHaveLength(2)
     expect(save).not.toHaveBeenCalled()
   })
+
+  it('reviews every category, treats an unconfirmed table as skipped, and blocks a blank lock', async () => {
+    const saved = { ...emptyPredictions(), table: { order: initialTableOrder, confirmed: false } }
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve(), lock: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
+    expect(screen.getByRole('heading', { name: '0 predictions ready' })).toBeInTheDocument()
+    expect(screen.getAllByText('No prediction').length).toBeGreaterThan(10)
+    expect(screen.getByText('Add at least one valid prediction before locking.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Lock my predictions' })).toBeDisabled()
+    expect(screen.getByText('Scoring reference — 277 points available')).toBeInTheDocument()
+  })
+
+  it('locks a valid saved entry atomically and makes the workspace read-only', async () => {
+    const lock = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    const saved = { ...emptyPredictions(), cups: { 'FA Cup': 'Arsenal' } }
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve(), lock }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock my predictions' }))
+    await waitFor(() => expect(lock).toHaveBeenCalledWith('ke', saved))
+    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Confirm table' })).not.toBeInTheDocument()
+    expect(screen.getByText('FA Cup')).toBeInTheDocument()
+    expect(screen.getByText('Arsenal')).toBeInTheDocument()
+    expect(screen.getAllByText('KE')).toHaveLength(2)
+  })
+
+  it('treats numeric zero and a 0–0 score as valid answers, and only confirmed tables count', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save, lock: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Premier League questions' }))
+    fireEvent.change(screen.getByLabelText('Chelsea Premier League red cards — closest wins'), { target: { value: '0' } })
+    fireEvent.change(screen.getByLabelText('Arsenal vs Chelsea at the Emirates — score prediction: home score'), { target: { value: '0' } })
+    fireEvent.change(screen.getByLabelText('Arsenal vs Chelsea at the Emirates — score prediction: away score'), { target: { value: '0' } })
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
+    expect(screen.getByText('0')).toBeInTheDocument()
+    expect(screen.getByText('0–0')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Lock my predictions' })).toBeDisabled()
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(screen.getByRole('button', { name: 'Lock my predictions' })).toBeEnabled()
+  })
+
+  it('offers a direct retry after a rejected lock without requiring an edit', async () => {
+    const lock = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>()
+      .mockRejectedValueOnce(new Error('network'))
+      .mockResolvedValueOnce(undefined)
+    const saved = { ...emptyPredictions(), cups: { 'FA Cup': 'Arsenal' } }
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve(), lock }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
+    fireEvent.click(screen.getByRole('checkbox'))
+    fireEvent.click(screen.getByRole('button', { name: 'Lock my predictions' }))
+    expect(await screen.findByRole('button', { name: 'Retry locking' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry locking' }))
+    await waitFor(() => expect(lock).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
+  })
+
+  it('blocks locking while a draft save is pending, failed, or offline', async () => {
+    let resolveSave: (() => void) | undefined
+    const pendingSave = new Promise<void>((resolve) => { resolveSave = resolve })
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save: () => pendingSave, lock: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
+    fireEvent.change(screen.getByLabelText('FA Cup'), { target: { value: 'Arsenal' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
+    expect(screen.getByRole('button', { name: 'Lock my predictions' })).toBeDisabled()
+    resolveSave?.()
+  })
+
+  it('blocks locking after a failed save and while offline', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockRejectedValue(new Error('failed'))
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save, lock: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
+    fireEvent.change(screen.getByLabelText('FA Cup'), { target: { value: 'Arsenal' } })
+    expect(await screen.findByText('Not saved')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
+    expect(screen.getByRole('button', { name: 'Lock my predictions' })).toBeDisabled()
+  })
+
+  it('opens a previously locked profile as a grouped read-only entry', async () => {
+    const saved = { ...emptyPredictions(), table: { order: initialTableOrder, confirmed: true }, cups: { 'FA Cup': 'Arsenal' }, questions: { 'chelsea-red-cards': 0 } }
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Kshitij' }))
+    expect(await screen.findByText("Kshitij's entry is read-only")).toBeInTheDocument()
+    expect(screen.getAllByText('Arsenal').length).toBeGreaterThan(1)
+    expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Lock my predictions' })).not.toBeInTheDocument()
+  })
+
+  it('opens an admin-reopened draft with its saved values editable and no revision history', async () => {
+    const saved = { ...emptyPredictions(), cups: { 'FA Cup': 'Arsenal' } }
+    const lockedCompetition = { ...competition, profiles: competition.profiles.map((profile) => profile.slug === 'keshav' ? { ...profile, status: 'Locked' as const } : profile) }
+    const reopenedCompetition = { ...competition, profiles: competition.profiles.map((profile) => profile.slug === 'keshav' ? { ...profile, status: 'In progress' as const } : profile) }
+    const first = render(<App loadCompetition={() => Promise.resolve(lockedCompetition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    expect(await screen.findByText("Keshav's entry is read-only")).toBeInTheDocument()
+    first.unmount()
+    render(<App loadCompetition={() => Promise.resolve(reopenedCompetition)} predictionStore={{ load: () => Promise.resolve(saved), save: () => Promise.resolve() }} />)
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
+    expect(screen.getByLabelText('FA Cup')).toHaveValue('Arsenal')
+    expect(screen.queryByText(/revision history/i)).not.toBeInTheDocument()
+  })
+
+  it('prevents review locking after an offline mutation', async () => {
+    const online = Object.getOwnPropertyDescriptor(window.navigator, 'onLine')
+    Object.defineProperty(window.navigator, 'onLine', { configurable: true, value: false })
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save: () => Promise.resolve(), lock: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('tab', { name: 'Cup winners' }))
+    fireEvent.change(screen.getByLabelText('FA Cup'), { target: { value: 'Arsenal' } })
+    expect(await screen.findByText('Offline — changes are not shared')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
+    expect(screen.getByRole('button', { name: 'Lock my predictions' })).toBeDisabled()
+    if (online) Object.defineProperty(window.navigator, 'onLine', online)
+  })
+
+  it('allows locking a confirmed table without any other answer', async () => {
+    const save = vi.fn<(profileId: string, value: PredictionPayload) => Promise<void>>().mockResolvedValue(undefined)
+    render(<App loadCompetition={() => Promise.resolve(competition)} predictionStore={{ load: () => Promise.resolve(emptyPredictions()), save, lock: () => Promise.resolve() }} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Continue as Keshav' }))
+    await screen.findByText('Saved')
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm table' }))
+    await waitFor(() => expect(save).toHaveBeenCalled())
+    expect(screen.getByText('20 of 39 predictions answered')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Review & lock' }))
+    fireEvent.click(screen.getByRole('checkbox'))
+    expect(screen.getByRole('button', { name: 'Lock my predictions' })).toBeEnabled()
+  })
 })

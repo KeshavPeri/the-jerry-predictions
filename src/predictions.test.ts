@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { answeredCount, emptyPredictions, initialTableOrder, isCompleteTableOrder, moveClub, normalizeManualAnswer, parsePredictionPayload, parseWholeNumber, PredictionDataError } from './predictions'
+import { answeredCount, emptyPredictions, initialTableOrder, isCompleteTableOrder, moveClub, normalizeManualAnswer, parsePredictionPayload, parseWholeNumber, PredictionDataError, SCORING_ALLOCATION, SCORING_TOTAL } from './predictions'
 
 describe('prediction payload helpers', () => {
   it('normalizes and limits manual answers', () => {
@@ -65,5 +65,10 @@ describe('prediction payload helpers', () => {
     expect(() => parsePredictionPayload({ table: { order: initialTableOrder.slice(1), confirmed: true } })).toThrow(PredictionDataError)
     expect(() => parsePredictionPayload({ table: { order: [...initialTableOrder.slice(0, 19), initialTableOrder[0]], confirmed: false } })).toThrow(PredictionDataError)
     expect(() => parsePredictionPayload({ table: { order: [...initialTableOrder.slice(0, 19), 'unknown-club'], confirmed: false } })).toThrow(PredictionDataError)
+  })
+
+  it('keeps the approved scoring allocation explicit and complete', () => {
+    expect(SCORING_TOTAL).toBe(277)
+    expect(Object.values(SCORING_ALLOCATION).reduce((total, value) => total + value, 0)).toBe(SCORING_TOTAL)
   })
 })

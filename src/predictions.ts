@@ -1,5 +1,13 @@
 export const PREDICTION_PAYLOAD_VERSION = 1
 export const MAX_MANUAL_ANSWER_LENGTH = 120
+export const SCORING_TOTAL = 277
+export const SCORING_ALLOCATION = {
+  table: 135,
+  cups: 38,
+  categoricalQuestions: 70,
+  numericQuestions: 20,
+  matchPredictions: 14,
+} as const
 
 export const premierLeagueClubs = [
   { id: 'afc-bournemouth', name: 'AFC Bournemouth' },

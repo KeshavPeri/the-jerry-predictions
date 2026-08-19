@@ -123,6 +123,14 @@ Record material product decisions so a future run can reconstruct not only what 
 
 ## Product Manager decisions
 
+### 2026-08-19 — Review only confirmed Premier League tables as predictions
+
+- **Decision:** In Review & lock, a complete but unconfirmed Premier League table is shown as skipped rather than as twenty answers. The saved draft remains available for later confirmation.
+- **Because:** The table is deliberately all-or-nothing: the product rules require explicit confirmation before it counts as a prediction or can be scored.
+- **Consequences:** Completion remains informational; locking validates only that at least one valid prediction exists. A malformed stored table retains the existing non-destructive error state and cannot proceed to lock.
+- **Reversibility:** Easy for the review presentation; moderate for malformed-data treatment.
+- **Authority:** Delegated product authority
+
 ### 2026-08-19 — Treat the competition subtitle as descriptive text
 
 - **Decision:** Render `2026/27 Football Prediction Competition` as a paragraph immediately beneath the existing page-level heading, not as a second heading.
